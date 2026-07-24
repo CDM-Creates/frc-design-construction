@@ -33,6 +33,17 @@ const materialSchemes = [
   { name: "Earth + light", note: "Warm masonry balanced with pale surfaces.", colours: ["#c68a60", "#ede5d5", "#736b5c"], tags: ["Face brick", "Lime render", "Sandstone paving"] },
 ];
 
+type SiteAnalysis = {
+  matchedAddress: string;
+  council: string;
+  area: number | null;
+  boundary: number[][];
+  controls: { zone: string; zoneName: string; lep: string; maxHeight: string | null; fsr: string | null; minimumLotSize: string | null; heritage: string | null };
+  opportunities: string[][];
+  constraints: { name: string; value: string; status: string }[];
+  analysedAt: string;
+};
+
 export default function Home() {
   const storyRef = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
@@ -56,6 +67,9 @@ export default function Home() {
   const [propertyVerified, setPropertyVerified] = useState(false);
   const [priorities, setPriorities] = useState<string[]>(["Natural light", "Budget certainty"]);
   const [reportName, setReportName] = useState("");
+  const [analysis, setAnalysis] = useState<SiteAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
 
   useEffect(() => {
     const update = () => {
@@ -122,7 +136,32 @@ export default function Home() {
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
   const galleryFor = (index: number) => projects[index].gallery ?? standardGallery(projects[index].slug, projects[index].image);
   const labelsFor = (index: number) => projects[index].labels ?? ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"];
+  const boundaryPolygon = useMemo(() => {
+    if (!analysis?.boundary?.length) return "polygon(4% 7%, 92% 0, 100% 86%, 14% 100%, 0 48%)";
+    const xs = analysis.boundary.map(([x]) => x);
+    const ys = analysis.boundary.map(([, y]) => y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    return `polygon(${analysis.boundary.map(([x, y]) => `${8 + ((x - minX) / (maxX - minX || 1)) * 84}% ${8 + (1 - (y - minY) / (maxY - minY || 1)) * 84}%`).join(",")})`;
+  }, [analysis]);
   const togglePriority = (priority: string) => setPriorities((current) => current.includes(priority) ? current.filter((item) => item !== priority) : [...current, priority]);
+  const analyseProperty = async () => {
+    setAnalysisLoading(true);
+    setAnalysisError("");
+    setAnalysis(null);
+    try {
+      const response = await fetch("/api/site-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: projectAddress }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Property analysis failed.");
+      setAnalysis(result);
+      if (result.area) setLandArea(result.area);
+      setPropertyVerified(true);
+    } catch (error) {
+      setPropertyVerified(false);
+      setAnalysisError(error instanceof Error ? error.message : "Property analysis failed.");
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
   const roadmap = useMemo(() => {
     const approvalWeeks = roadmapPath === "cdc" ? "6-10 weeks" : "4-8 months";
     const designWeeks = projectGoal === "renovation" ? "8-12 weeks" : projectGoal === "dual" ? "10-16 weeks" : "8-14 weeks";
@@ -279,17 +318,25 @@ export default function Home() {
           <div className="property-form">
             <span className="stage-number">01 / Establish the ground truth</span>
             <h3>Start with the land,<br />not assumptions.</h3>
-            <p>Search the NSW Planning Portal to confirm the legal parcel and planning layers. Then record the Lot/DP and property dimensions here.</p>
-            <label><span>NSW property address</span><input value={projectAddress} onChange={(event) => setProjectAddress(event.target.value)} placeholder="e.g. 31 Crown Line Drive, Rothbury" /></label>
-            <div className="portal-action"><a href="https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address" target="_blank" rel="noreferrer">Open NSW Spatial Viewer <span>↗</span></a><small>Official NSW Planning Portal · opens in a new tab</small></div>
-            <div className="property-pair"><label><span>Lot / DP reference</span><input value={lotDp} onChange={(event) => setLotDp(event.target.value)} placeholder="Lot 126 / DP1212935" /></label><label><span>Property report</span><span className="file-control"><input type="file" accept=".pdf,image/*" onChange={(event) => setReportName(event.target.files?.[0]?.name ?? "")} /><b>{reportName || "Attach report"}</b></span></label></div>
-            <button className={`verify-property ${propertyVerified ? "verified" : ""}`} onClick={() => setPropertyVerified((value) => !value)}><i>{propertyVerified ? "✓" : "○"}</i><span><b>{propertyVerified ? "Official parcel confirmed" : "I have checked the official parcel"}</b><small>{propertyVerified ? "Boundary details marked as client-verified" : "Confirm only after checking the NSW Spatial Viewer"}</small></span></button>
-            <button className="stage-next" disabled={!projectAddress || !propertyVerified} onClick={() => setSetupStep(2)}>Shape the project <span>→</span></button>
+            <p>Enter one complete NSW address. FRC Site Intelligence will resolve the official property record and interrogate the live statewide planning layers automatically.</p>
+            <label><span>NSW property address</span><input value={projectAddress} onChange={(event) => { setProjectAddress(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="e.g. 31 Crown Line Drive, Rothbury NSW 2320" /></label>
+            <button className="analyse-property" disabled={!projectAddress || analysisLoading} onClick={analyseProperty}>{analysisLoading ? <><i className="analysis-spinner" />Reading NSW planning layers…</> : <>Analyse what I can build <span>→</span></>}</button>
+            {analysisError && <div className="analysis-error"><b>We couldn’t complete that address.</b><span>{analysisError}</span></div>}
+            {!analysis && !analysisLoading && <div className="analysis-promise"><span>Live report includes</span><div><b>Zoning</b><b>Height</b><b>FSR</b><b>Lot size</b><b>Heritage</b><b>Parcel area</b></div><small>No sign-up. Results come from official NSW spatial services.</small></div>}
+            {analysis && <div className="analysis-confirmation"><div><i>✓</i><span><b>Official property matched</b><small>{analysis.matchedAddress} · {analysis.council} Council</small></span></div><dl><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>Planning instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Official parcel area</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²</dd></div><div><dt>Data status</dt><dd>Live NSW layers</dd></div></dl></div>}
+            <div className="analysis-support"><a href="https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address" target="_blank" rel="noreferrer">Verify in NSW Spatial Viewer ↗</a><label><span className="file-control"><input type="file" accept=".pdf,image/*" onChange={(event) => setReportName(event.target.files?.[0]?.name ?? "")} /><b>{reportName || "Attach property report"}</b></span></label></div>
+            <button className="stage-next" disabled={!analysis} onClick={() => setSetupStep(2)}>Explore my development potential <span>→</span></button>
           </div>
           <div className="parcel-lab">
-            <div className="parcel-map"><div className="map-grid" /><div className="road-label">STREET FRONTAGE · {frontage}m</div><div className="parcel-shape" style={{ width: `${Math.min(78, 42 + frontage)}%`, height: `${Math.min(78, 38 + landArea / 22)}%` }}><span>{lotDp || "LOT / DP"}</span><b>{landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{projectAddress || "Your property"}</span></div></div>
-            <div className="parcel-controls"><label><span>Land area <b>{landArea} m²</b></span><input type="range" min="200" max="2500" step="10" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /></label><label><span>Street frontage <b>{frontage} m</b></span><input type="range" min="6" max="45" step="1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /></label></div>
-            <p>Concept diagram only. Legal boundaries and dimensions must be confirmed by a registered survey and the official NSW record.</p>
+            <div className="parcel-map"><div className="map-grid" /><div className="road-label">{analysis ? `OFFICIAL PROPERTY · ${analysis.controls.zone}` : "AWAITING ADDRESS"}</div><div className={`parcel-shape ${analysis ? "live" : ""}`} style={{ clipPath: boundaryPolygon }}><span>{analysis ? "NSW CADASTRAL PARCEL" : "PROPERTY ENVELOPE"}</span><b>{analysis?.area?.toLocaleString() ?? landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{analysis?.matchedAddress || projectAddress || "Your property"}</span></div></div>
+            {analysis ? <div className="control-dashboard">
+              <header><div><span>Automatic planning snapshot</span><strong>What the mapped controls say</strong></div><b>LIVE</b></header>
+              <div className="control-grid"><article><span>Zone</span><strong>{analysis.controls.zone}</strong><small>{analysis.controls.zoneName}</small></article><article><span>Max height</span><strong>{analysis.controls.maxHeight ?? "Not mapped"}</strong><small>{analysis.controls.maxHeight ? "LEP maximum" : "LEP / DCP review"}</small></article><article><span>Floor-space ratio</span><strong>{analysis.controls.fsr ?? "Not mapped"}</strong><small>{analysis.controls.fsr ? "Mapped maximum" : "No statewide value hit"}</small></article><article><span>Minimum lot size</span><strong>{analysis.controls.minimumLotSize ?? "Not mapped"}</strong><small>{analysis.controls.minimumLotSize ? "Mapped control" : "LEP clause review"}</small></article></div>
+              <div className="opportunity-list"><span>Development opportunities to test</span>{analysis.opportunities.map(([title, status, detail]) => <div key={title}><i>{status === "Likely zone-compatible" || status === "Zone-led opportunity" ? "✓" : "?"}</i><p><b>{title}</b><small>{detail}</small></p><strong>{status}</strong></div>)}</div>
+              <div className="constraint-list"><span>Constraints + unknowns</span>{analysis.constraints.map((constraint) => <div key={constraint.name}><b>{constraint.name}</b><span>{constraint.value}</span><i className={constraint.status}>{constraint.status === "mapped" ? "Mapped" : constraint.status === "clear" ? "No hit" : "Verify"}</i></div>)}</div>
+              <div className="excavation-note"><b>How far can I dig?</b><p>The Spatial Viewer does not provide one statewide “maximum excavation depth”. It depends on the approval pathway, council DCP, slope, groundwater, services, acid-sulfate soils, structural design and geotechnical conditions. FRC flags this for survey and geotechnical review rather than inventing a depth.</p></div>
+            </div> : <div className="parcel-empty"><i>↳</i><p><b>Your development envelope will appear here.</b><span>We’ll query the address, parcel, zoning, height, FSR, minimum lot size and principal heritage layer.</span></p></div>}
+            <p>Planning snapshot only—not a planning certificate or approval. Confirm title, survey, easements, DCP controls, hazards, servicing and current legislation before design or purchase decisions.</p>
           </div>
         </div>}
 
