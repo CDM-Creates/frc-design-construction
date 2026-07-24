@@ -11,7 +11,7 @@ const capabilities = [
 
 const projects = [
   { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic.png", feature: true, gallery: ["/projects/betula/realistic.png", "/projects/betula/perspectives.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Architectural perspectives", "Ground floor plan", "Upper floor plan"] },
-  { slug: "crown-line", name: "Crown Line Residence", location: "NSW", type: "New home", image: "/projects/crown-line/perspective.jpg", gallery: ["/projects/crown-line/perspective.jpg", "/projects/crown-line/isometric.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Front and rear perspectives", "Spatial isometric", "Floor plan", "North and south elevations"] },
+  { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
   { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.jpg" },
   { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.jpg" },
   { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.jpg" },
@@ -39,6 +39,9 @@ export default function Home() {
   const [projectType, setProjectType] = useState<"new" | "dual" | "reno">("dual");
   const [scope, setScope] = useState<"concept" | "approval" | "full">("full");
   const [buildCost, setBuildCost] = useState(1400);
+  const [pathway, setPathway] = useState<"cdc" | "da" | "complex">("da");
+  const [siteComplexity, setSiteComplexity] = useState<"clear" | "typical" | "constrained">("typical");
+  const [consultants, setConsultants] = useState(true);
   const [selectedMaterial, setSelectedMaterial] = useState(0);
   const [workMenuOpen, setWorkMenuOpen] = useState(false);
   const [activeProject, setActiveProject] = useState<number | null>(null);
@@ -76,15 +79,33 @@ export default function Home() {
   }, [activeProject]);
 
   const estimate = useMemo(() => {
-    const typeFactor = { new: 1, dual: 1.22, reno: 1.12 }[projectType];
-    const scopeFactor = { concept: 0.028, approval: 0.052, full: 0.085 }[scope];
-    const midpoint = buildCost * 1000 * typeFactor * scopeFactor;
+    const baseRate = {
+      new: { concept: .024, approval: .052, full: .092 },
+      dual: { concept: .029, approval: .063, full: .108 },
+      reno: { concept: .033, approval: .074, full: .124 },
+    }[projectType][scope];
+    const pathwayFactor = { cdc: .96, da: 1.08, complex: 1.22 }[pathway];
+    const complexityFactor = { clear: .92, typical: 1, constrained: 1.18 }[siteComplexity];
+    const architecture = buildCost * 1000 * baseRate * pathwayFactor * complexityFactor;
+    const consultantAllowance = consultants
+      ? ({ new: 39000, dual: 51500, reno: 45500 }[projectType] * ({ cdc: .9, da: 1, complex: 1.22 }[pathway]))
+      : 0;
+    const risk = { clear: .08, typical: .12, constrained: .18 }[siteComplexity];
+    const phaseWeights = scope === "concept"
+      ? [["Brief + feasibility", .2], ["Concept design", .8]]
+      : scope === "approval"
+        ? [["Brief + feasibility", .12], ["Concept design", .36], ["Design development", .2], ["Approval set", .32]]
+        : [["Brief + feasibility", .07], ["Concept design", .22], ["Design development", .17], ["Approval set", .16], ["Construction docs", .28], ["Construction support", .1]];
     return {
-      low: Math.round(midpoint * .88 / 1000) * 1000,
-      high: Math.round(midpoint * 1.16 / 1000) * 1000,
-      programme: scope === "concept" ? "4-8 weeks" : scope === "approval" ? "4-8 months" : "8-14 months",
+      low: Math.round(architecture * (1 - risk * .45) / 1000) * 1000,
+      high: Math.round(architecture * (1 + risk) / 1000) * 1000,
+      architecture,
+      consultantAllowance,
+      phaseWeights,
+      programme: scope === "concept" ? "5-9 weeks" : scope === "approval" ? (pathway === "cdc" ? "4-7 months" : "7-12 months") : (pathway === "complex" ? "14-22 months" : "10-17 months"),
+      confidence: siteComplexity === "clear" && pathway === "cdc" ? 84 : siteComplexity === "constrained" || pathway === "complex" ? 58 : 72,
     };
-  }, [buildCost, projectType, scope]);
+  }, [buildCost, consultants, pathway, projectType, scope, siteComplexity]);
 
   const p = Math.round(progress * 100);
   const realReveal = Math.max(0, Math.min(1, (progress - .27) * 1.8));
@@ -137,7 +158,11 @@ export default function Home() {
           <p>A three-storey dual occupancy composed as one calm address—balancing privacy, generous family living and a confident street presence.</p>
           <dl><div><dt>Location</dt><dd>Betula Avenue</dd></div><div><dt>Typology</dt><dd>Detached dual occupancy</dd></div><div><dt>Scope</dt><dd>Architecture + documentation</dd></div><div><dt>Form</dt><dd>Three storeys + garages</dd></div></dl>
         </div>
-        <div className="elevation-wrap"><img src="/projects/betula/perspectives.png" alt="Betula Avenue architectural perspective sheet" /><div className="elevation-caption">Front / rear perspectives · Design documentation</div></div>
+        <div className="resolved-spread">
+          <div className="resolved-image drawing"><img src="/projects/betula/drawing.png" alt="Betula Avenue architectural model" /><span>01 / Architectural model</span></div>
+          <div className="resolved-image reality"><img src="/projects/betula/realistic.png" alt="Photoreal Betula Avenue exterior" /><span>02 / Resolved material study</span></div>
+          <div className="resolved-note"><small>Drawing → reality</small><strong>The geometry stays.<br />The experience arrives.</strong><p>Exact massing, openings and proportions—resolved through natural light, tactile materials and landscape.</p></div>
+        </div>
       </section>
 
       <section className="materials" aria-labelledby="materials-title">
@@ -187,16 +212,37 @@ export default function Home() {
       </section>
 
       <section className="estimator" id="estimate">
-        <div className="section-kicker">Architectural fee guide · Interactive</div>
-        <div className="estimator-head"><h2>A useful range.<br />Not a <em>fake quote.</em></h2><p>Model an indicative architecture fee using project type, service scope and a realistic construction budget. Consultant, authority and construction costs are separate.</p></div>
-        <div className="estimator-panel">
-          <div className="controls">
-            <fieldset><legend>Project type</legend><div className="segmented">{([["new", "New home"], ["dual", "Dual occupancy"], ["reno", "Renovation"]] as const).map(([value, label]) => <button key={value} className={projectType === value ? "active" : ""} onClick={() => setProjectType(value)}>{label}</button>)}</div></fieldset>
-            <fieldset><legend>Service scope</legend><div className="segmented">{([["concept", "Concept"], ["approval", "To approval"], ["full", "Full service"]] as const).map(([value, label]) => <button key={value} className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>)}</div></fieldset>
-            <label><span>Estimated construction budget <b>${(buildCost / 1000).toFixed(2)}m</b></span><input aria-label="Estimated construction budget" type="range" min="500" max="4000" step="50" value={buildCost} onChange={(e) => setBuildCost(Number(e.target.value))} /><i><small>$500k</small><small>$4m+</small></i></label>
-            <button className="site-check" onClick={() => document.querySelector("#quote")?.scrollIntoView()}>Request a tailored fee proposal <span>↗</span></button>
+        <div className="section-kicker">FRC Project Intelligence · Live model</div>
+        <div className="estimator-head"><h2>Price the pathway.<br />See every <em>move.</em></h2><p>A live pre-fee model grounded in construction value, typology, approval effort, site risk and service depth—not a generic square-metre calculator.</p></div>
+        <div className="estimator-console">
+          <aside className="estimate-config">
+            <div className="console-label"><span>01</span><b>Build your scenario</b><small>All values update live</small></div>
+            <fieldset><legend>Project type</legend><div className="segmented">{([["new", "New home"], ["dual", "Dual occupancy"], ["reno", "Major renovation"]] as const).map(([value, label]) => <button key={value} className={projectType === value ? "active" : ""} onClick={() => setProjectType(value)}>{label}</button>)}</div></fieldset>
+            <fieldset><legend>Service depth</legend><div className="segmented">{([["concept", "Concept"], ["approval", "To approval"], ["full", "Full service"]] as const).map(([value, label]) => <button key={value} className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>)}</div></fieldset>
+            <fieldset><legend>Approval pathway</legend><div className="choice-row">{([["cdc", "CDC", "Fast track"], ["da", "DA", "Council"], ["complex", "Complex DA", "Specialist"]] as const).map(([value, label, note]) => <button key={value} className={pathway === value ? "active" : ""} onClick={() => setPathway(value)}><b>{label}</b><small>{note}</small></button>)}</div></fieldset>
+            <fieldset><legend>Site conditions</legend><div className="choice-row">{([["clear", "Clear", "Low constraint"], ["typical", "Typical", "Metro site"], ["constrained", "Constrained", "Slope / access"]] as const).map(([value, label, note]) => <button key={value} className={siteComplexity === value ? "active" : ""} onClick={() => setSiteComplexity(value)}><b>{label}</b><small>{note}</small></button>)}</div></fieldset>
+            <label className="budget-control"><span>Construction value <b>${(buildCost / 1000).toFixed(2)}m</b></span><input aria-label="Construction value" type="range" min="500" max="5000" step="50" value={buildCost} onChange={(e) => setBuildCost(Number(e.target.value))} /><i><small>$500k</small><small>$5m+</small></i></label>
+            <button className={`consultant-toggle ${consultants ? "active" : ""}`} onClick={() => setConsultants((value) => !value)} aria-pressed={consultants}><span><i>{consultants ? "✓" : "+"}</i><b>Include consultant allowance</b></span><small>Structure, civil, energy, landscape + survey</small></button>
+          </aside>
+          <div className="estimate-intelligence" aria-live="polite">
+            <div className="estimate-primary">
+              <div><span>Architecture fee range</span><strong>{formatMoney(estimate.low)}<i>—</i>{formatMoney(estimate.high)}</strong><small>Indicative, inc. GST · Architecture scope only</small></div>
+              <div className="confidence-ring" style={{ "--score": `${estimate.confidence * 3.6}deg` } as React.CSSProperties}><b>{estimate.confidence}</b><span>Model<br />confidence</span></div>
+            </div>
+            <div className="estimate-metrics">
+              <article><span>Programme</span><strong>{estimate.programme}</strong><small>design to selected scope</small></article>
+              <article><span>Fee basis</span><strong>{(estimate.architecture / (buildCost * 1000) * 100).toFixed(1)}%</strong><small>of construction value</small></article>
+              <article><span>Consultants</span><strong>{consultants ? formatMoney(estimate.consultantAllowance) : "Excluded"}</strong><small>working allowance</small></article>
+            </div>
+            <div className="phase-model">
+              <header><span>Phase investment map</span><small>{scope === "full" ? "Complete service" : scope === "approval" ? "Approval pathway" : "Early design"}</small></header>
+              <div className="phase-bar">{estimate.phaseWeights.map(([name, weight]) => <i key={name} style={{ width: `${Number(weight) * 100}%` }} title={String(name)} />)}</div>
+              <div className="phase-list">{estimate.phaseWeights.map(([name, weight], index) => <div key={name}><span><i>{String(index + 1).padStart(2, "0")}</i>{name}</span><b>{formatMoney(estimate.architecture * Number(weight))}</b></div>)}</div>
+            </div>
+            <div className="total-outlook"><span>Working project-cost outlook <small>construction + architecture{consultants ? " + consultant allowance" : ""}</small></span><strong>{formatMoney(buildCost * 1000 + estimate.architecture + estimate.consultantAllowance)}</strong></div>
+            <button className="proposal-button" onClick={() => document.querySelector("#quote")?.scrollIntoView()}>Turn this scenario into a tailored proposal <span>↗</span></button>
+            <p className="estimate-disclaimer">Decision-support estimate only, not a quotation. It excludes authority charges, specialist reports outside the allowance, interior procurement, builder preliminaries, escalation and latent conditions. Final fees follow a project-specific brief and site review.</p>
           </div>
-          <div className="estimate-output" aria-live="polite"><span>Indicative architecture fee</span><strong>{formatMoney(estimate.low)}—{formatMoney(estimate.high)}</strong><div><span>Selected scope</span><b>{scope === "concept" ? "Concept design" : scope === "approval" ? "Design + approval" : "Design to construction"}</b></div><div><span>Likely design programme</span><b>{estimate.programme}</b></div><div><span>Construction budget</span><b>{formatMoney(buildCost * 1000)}</b></div><small>Early guidance only, including GST. Final fees depend on site constraints, planning pathway, complexity, deliverables and consultant coordination. Construction and third-party fees are excluded.</small></div>
         </div>
       </section>
 

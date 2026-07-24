@@ -100,6 +100,15 @@ button, input, select { font: inherit; }
 .elevation-wrap { background: white; padding: 28px; position: relative; }
 .elevation-wrap img { width: 100%; display: block; mix-blend-mode: multiply; }
 .elevation-caption { position: absolute; left: 45px; bottom: 43px; font: 9px monospace; text-transform: uppercase; letter-spacing: .12em; }
+.resolved-spread { display: grid; grid-template-columns: .78fr 1.22fr; gap: 12px; position: relative; padding-bottom: 120px; }
+.resolved-image { position: relative; min-height: 620px; overflow: hidden; background: #d9d5cc; }
+.resolved-image img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.resolved-image.drawing img { filter: grayscale(1) contrast(1.08); }
+.resolved-image span { position: absolute; left: 18px; bottom: 18px; padding: 9px 11px; background: var(--paper); font: 8px monospace; text-transform: uppercase; letter-spacing: .12em; }
+.resolved-note { position: absolute; z-index: 2; right: 3vw; bottom: 0; width: min(520px, 45vw); padding: 34px; background: var(--acid); }
+.resolved-note small { font: 8px monospace; text-transform: uppercase; letter-spacing: .15em; }
+.resolved-note strong { display: block; margin: 18px 0; font: 31px/1.05 Georgia, serif; font-weight: 400; letter-spacing: -.035em; }
+.resolved-note p { margin: 0; max-width: 390px; font-size: 11px; line-height: 1.55; }
 
 .materials { padding: 130px 4vw; background: #0f1712; color: #f1efe7; }
 .materials-head { display: grid; grid-template-columns: 1.7fr .7fr; gap: 8vw; align-items: end; margin-bottom: 70px; }
@@ -209,6 +218,69 @@ button, input, select { font: inherit; }
 .estimate-output > div, .dash-costs > div { display: flex; justify-content: space-between; padding: 13px 0; border-top: 1px solid rgba(23,34,29,.25); font-size: 11px; }
 .estimate-output > small { margin-top: auto; padding-top: 25px; font: 9px/1.5 monospace; opacity: .6; }
 
+.estimator-console { display: grid; grid-template-columns: .82fr 1.18fr; background: #e9e5dc; border: 1px solid rgba(23,34,29,.24); box-shadow: 0 35px 90px rgba(39,32,25,.12); }
+.estimate-config { padding: 35px; border-right: 1px solid rgba(23,34,29,.2); }
+.console-label { display: grid; grid-template-columns: 35px 1fr auto; align-items: center; padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid rgba(23,34,29,.24); }
+.console-label span { color: #68730d; font: 9px monospace; }
+.console-label b { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+.console-label small { font: 8px monospace; text-transform: uppercase; opacity: .5; }
+.estimate-config fieldset { margin: 0 0 28px; padding: 0; border: 0; }
+.estimate-config legend { margin-bottom: 10px; font: 8px monospace; text-transform: uppercase; letter-spacing: .13em; opacity: .55; }
+.estimate-config .segmented button { min-height: 46px; }
+.choice-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.choice-row button { padding: 12px 9px; display: flex; flex-direction: column; gap: 5px; border: 1px solid rgba(23,34,29,.2); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.choice-row button b { font-size: 10px; }
+.choice-row button small { font: 8px monospace; opacity: .5; }
+.choice-row button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.budget-control { display: block; margin: 35px 0 28px; }
+.budget-control > span { display: flex; justify-content: space-between; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
+.budget-control > span b { font-size: 18px; letter-spacing: -.04em; }
+.budget-control input { width: 100%; margin: 20px 0 5px; accent-color: var(--ink); }
+.budget-control > i { display: flex; justify-content: space-between; font-style: normal; opacity: .5; }
+.consultant-toggle { width: 100%; padding: 14px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(23,34,29,.24); background: transparent; color: var(--ink); cursor: pointer; text-align: left; }
+.consultant-toggle > span { display: flex; align-items: center; gap: 10px; }
+.consultant-toggle i { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid; border-radius: 50%; font-style: normal; }
+.consultant-toggle b { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.consultant-toggle small { max-width: 130px; font: 8px/1.35 monospace; opacity: .55; }
+.consultant-toggle.active { border-color: #73800b; box-shadow: inset 3px 0 0 var(--acid); }
+.consultant-toggle.active i { background: var(--acid); color: var(--ink); border-color: var(--acid); }
+.estimate-intelligence { padding: 38px; background: #111914; color: #f2f0e9; }
+.estimate-primary { display: grid; grid-template-columns: 1fr 130px; gap: 25px; padding-bottom: 30px; border-bottom: 1px solid #3b453e; }
+.estimate-primary > div:first-child > span { font: 8px monospace; text-transform: uppercase; letter-spacing: .15em; color: var(--acid); }
+.estimate-primary strong { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 17px 0 9px; font-size: clamp(34px, 4vw, 61px); line-height: .92; font-weight: 500; letter-spacing: -.065em; }
+.estimate-primary strong i { color: var(--acid); font-style: normal; font-weight: 300; }
+.estimate-primary > div:first-child > small { color: #838d86; font: 8px monospace; text-transform: uppercase; }
+.confidence-ring { --score: 260deg; width: 116px; height: 116px; align-self: center; display: grid; place-items: center; position: relative; border-radius: 50%; background: conic-gradient(var(--acid) var(--score), #344038 0); }
+.confidence-ring::after { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #111914; }
+.confidence-ring b, .confidence-ring span { position: relative; z-index: 1; }
+.confidence-ring b { align-self: end; font-size: 30px; letter-spacing: -.06em; }
+.confidence-ring span { align-self: start; color: #8c958f; font: 7px/1.2 monospace; text-align: center; text-transform: uppercase; }
+.estimate-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid #3b453e; }
+.estimate-metrics article { padding: 22px 18px 22px 0; border-right: 1px solid #3b453e; }
+.estimate-metrics article + article { padding-left: 18px; }
+.estimate-metrics article:last-child { border-right: 0; }
+.estimate-metrics span, .phase-model header span { font: 8px monospace; text-transform: uppercase; letter-spacing: .13em; color: #848f87; }
+.estimate-metrics strong { display: block; margin: 10px 0 5px; font-size: 17px; font-weight: 500; }
+.estimate-metrics small { color: #6f7b73; font: 7px monospace; text-transform: uppercase; }
+.phase-model { padding: 26px 0; }
+.phase-model header { display: flex; justify-content: space-between; align-items: center; }
+.phase-model header small { color: var(--acid); font: 7px monospace; text-transform: uppercase; }
+.phase-bar { display: flex; gap: 2px; height: 8px; margin: 16px 0 12px; }
+.phase-bar i { display: block; background: var(--acid); opacity: .35; }
+.phase-bar i:nth-child(2n) { opacity: .72; }
+.phase-bar i:last-child { opacity: 1; }
+.phase-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+.phase-list > div { display: flex; justify-content: space-between; gap: 15px; padding: 9px 0; border-bottom: 1px solid #303a33; font-size: 9px; }
+.phase-list span { display: flex; gap: 9px; }
+.phase-list span i { color: #667169; font: 8px monospace; font-style: normal; }
+.phase-list b { font-weight: 500; }
+.total-outlook { display: flex; justify-content: space-between; align-items: end; gap: 25px; padding: 19px 0; border-top: 1px solid #3b453e; border-bottom: 1px solid #3b453e; }
+.total-outlook > span { display: flex; flex-direction: column; gap: 5px; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+.total-outlook small { color: #6f7a72; font: 7px monospace; text-transform: none; letter-spacing: 0; }
+.total-outlook strong { font-size: 24px; font-weight: 500; letter-spacing: -.04em; }
+.proposal-button { width: 100%; margin-top: 23px; padding: 16px 18px; display: flex; justify-content: space-between; border: 0; background: var(--acid); color: var(--ink); font-size: 9px; text-transform: uppercase; letter-spacing: .12em; cursor: pointer; }
+.estimate-disclaimer { margin: 15px 0 0; color: #69746d; font: 7px/1.45 monospace; }
+
 .portal { min-height: 100vh; padding: 120px 4vw; display: grid; grid-template-columns: .85fr 1.3fr; gap: 7vw; align-items: center; background: #0d1410; color: white; }
 .portal-copy h2 { margin-bottom: 50px; }
 .portal-copy > p { max-width: 450px; color: #adb3ad; font: 18px/1.55 Georgia, serif; }
@@ -292,6 +364,9 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   .elevation-wrap { padding: 8px; overflow: hidden; }
   .elevation-wrap img { width: 180%; max-width: none; }
   .elevation-caption { left: 18px; bottom: 18px; }
+  .resolved-spread { grid-template-columns: 1fr; padding-bottom: 170px; }
+  .resolved-image { min-height: 390px; }
+  .resolved-note { right: 0; width: calc(100% - 20px); }
   .materials { padding: 90px 20px; }
   .materials-head { grid-template-columns: 1fr; }
   .materials-head h2 { font-size: 62px; margin-bottom: 45px; }
@@ -323,6 +398,18 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   .quote { padding: 90px 20px; gap: 10px; }
   .estimator { padding: 90px 20px; }
   .estimator-panel { grid-template-columns: 1fr; }
+  .estimator-console { grid-template-columns: 1fr; }
+  .estimate-config { padding: 24px 18px; border-right: 0; border-bottom: 1px solid rgba(23,34,29,.2); }
+  .console-label { grid-template-columns: 30px 1fr; }
+  .console-label small { display: none; }
+  .choice-row { gap: 4px; }
+  .estimate-intelligence { padding: 28px 18px; }
+  .estimate-primary { grid-template-columns: 1fr 100px; }
+  .confidence-ring { width: 92px; height: 92px; }
+  .estimate-metrics { grid-template-columns: 1fr; }
+  .estimate-metrics article, .estimate-metrics article + article { padding: 16px 0; border-right: 0; border-bottom: 1px solid #3b453e; }
+  .phase-list { grid-template-columns: 1fr; }
+  .total-outlook { align-items: start; flex-direction: column; }
   .controls, .estimate-output { padding: 32px 22px; }
   .estimate-output { min-height: 400px; }
   .portal { padding: 90px 20px; }
