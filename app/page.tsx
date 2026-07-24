@@ -46,6 +46,16 @@ export default function Home() {
   const [workMenuOpen, setWorkMenuOpen] = useState(false);
   const [activeProject, setActiveProject] = useState<number | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [setupStep, setSetupStep] = useState(1);
+  const [projectAddress, setProjectAddress] = useState("");
+  const [lotDp, setLotDp] = useState("");
+  const [landArea, setLandArea] = useState(650);
+  const [frontage, setFrontage] = useState(15);
+  const [projectGoal, setProjectGoal] = useState<"home" | "dual" | "renovation">("home");
+  const [roadmapPath, setRoadmapPath] = useState<"cdc" | "da">("da");
+  const [propertyVerified, setPropertyVerified] = useState(false);
+  const [priorities, setPriorities] = useState<string[]>(["Natural light", "Budget certainty"]);
+  const [reportName, setReportName] = useState("");
 
   useEffect(() => {
     const update = () => {
@@ -112,6 +122,21 @@ export default function Home() {
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
   const galleryFor = (index: number) => projects[index].gallery ?? standardGallery(projects[index].slug, projects[index].image);
   const labelsFor = (index: number) => projects[index].labels ?? ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"];
+  const togglePriority = (priority: string) => setPriorities((current) => current.includes(priority) ? current.filter((item) => item !== priority) : [...current, priority]);
+  const roadmap = useMemo(() => {
+    const approvalWeeks = roadmapPath === "cdc" ? "6-10 weeks" : "4-8 months";
+    const designWeeks = projectGoal === "renovation" ? "8-12 weeks" : projectGoal === "dual" ? "10-16 weeks" : "8-14 weeks";
+    return [
+      ["01", "Site intelligence", propertyVerified ? "Boundary confirmed" : "Confirm boundary", "Now"],
+      ["02", "Feasibility sprint", "Controls, yield + risk", "1-2 weeks"],
+      ["03", "Project brief", `${priorities.length || 1} priorities aligned`, "1 week"],
+      ["04", "Concept design", projectGoal === "dual" ? "Two-home test fit" : projectGoal === "renovation" ? "Existing + proposed" : "Home test fit", designWeeks],
+      ["05", roadmapPath === "cdc" ? "CDC pathway" : "DA pathway", roadmapPath === "cdc" ? "Certifier coordination" : "Council coordination", approvalWeeks],
+      ["06", "Technical design", "Consultant coordination", "8-14 weeks"],
+      ["07", "Builder-ready set", "Pricing + construction issue", "4-8 weeks"],
+      ["08", "Construction support", "Decisions, RFIs + quality", "Project duration"],
+    ];
+  }, [priorities.length, projectGoal, propertyVerified, roadmapPath]);
 
   return (
     <main>
@@ -246,7 +271,38 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="quote" id="quote"><div><span className="section-kicker">Start with clarity</span><h2>Tell us the address.<br />We’ll show you the <em>potential.</em></h2></div><form onSubmit={(e) => e.preventDefault()}><label><span>Project address</span><input type="text" placeholder="e.g. 95 Betula Avenue" /></label><label><span>What are you planning?</span><select defaultValue=""><option value="" disabled>Select your project type</option><option>New home</option><option>Renovation or addition</option><option>Dual occupancy</option><option>Commercial or community</option></select></label><label><span>Your email</span><input type="email" placeholder="you@email.com" /></label><button type="submit">Get my project roadmap <span>↗</span></button><small>No hard sell. We’ll review your details and respond with the best next step.</small></form></section>
+      <section className="project-starter" id="quote">
+        <header className="starter-head"><div><span className="section-kicker">FRC Project Starter · Live workspace</span><h2>Your land.<br />Your <em>roadmap.</em></h2></div><p>Turn a property into an actionable project brief. Confirm the official parcel, shape the ambition and leave with a tailored path from due diligence to construction.</p></header>
+        <nav className="starter-progress" aria-label="Project setup progress">{[["01", "Property"], ["02", "Ambition"], ["03", "Roadmap"]].map(([number, label], index) => <button key={number} className={setupStep === index + 1 ? "active" : setupStep > index + 1 ? "done" : ""} onClick={() => setSetupStep(index + 1)}><i>{setupStep > index + 1 ? "✓" : number}</i><span>{label}</span></button>)}</nav>
+
+        {setupStep === 1 && <div className="starter-stage property-stage">
+          <div className="property-form">
+            <span className="stage-number">01 / Establish the ground truth</span>
+            <h3>Start with the land,<br />not assumptions.</h3>
+            <p>Search the NSW Planning Portal to confirm the legal parcel and planning layers. Then record the Lot/DP and property dimensions here.</p>
+            <label><span>NSW property address</span><input value={projectAddress} onChange={(event) => setProjectAddress(event.target.value)} placeholder="e.g. 31 Crown Line Drive, Rothbury" /></label>
+            <div className="portal-action"><a href="https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address" target="_blank" rel="noreferrer">Open NSW Spatial Viewer <span>↗</span></a><small>Official NSW Planning Portal · opens in a new tab</small></div>
+            <div className="property-pair"><label><span>Lot / DP reference</span><input value={lotDp} onChange={(event) => setLotDp(event.target.value)} placeholder="Lot 126 / DP1212935" /></label><label><span>Property report</span><span className="file-control"><input type="file" accept=".pdf,image/*" onChange={(event) => setReportName(event.target.files?.[0]?.name ?? "")} /><b>{reportName || "Attach report"}</b></span></label></div>
+            <button className={`verify-property ${propertyVerified ? "verified" : ""}`} onClick={() => setPropertyVerified((value) => !value)}><i>{propertyVerified ? "✓" : "○"}</i><span><b>{propertyVerified ? "Official parcel confirmed" : "I have checked the official parcel"}</b><small>{propertyVerified ? "Boundary details marked as client-verified" : "Confirm only after checking the NSW Spatial Viewer"}</small></span></button>
+            <button className="stage-next" disabled={!projectAddress || !propertyVerified} onClick={() => setSetupStep(2)}>Shape the project <span>→</span></button>
+          </div>
+          <div className="parcel-lab">
+            <div className="parcel-map"><div className="map-grid" /><div className="road-label">STREET FRONTAGE · {frontage}m</div><div className="parcel-shape" style={{ width: `${Math.min(78, 42 + frontage)}%`, height: `${Math.min(78, 38 + landArea / 22)}%` }}><span>{lotDp || "LOT / DP"}</span><b>{landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{projectAddress || "Your property"}</span></div></div>
+            <div className="parcel-controls"><label><span>Land area <b>{landArea} m²</b></span><input type="range" min="200" max="2500" step="10" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /></label><label><span>Street frontage <b>{frontage} m</b></span><input type="range" min="6" max="45" step="1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /></label></div>
+            <p>Concept diagram only. Legal boundaries and dimensions must be confirmed by a registered survey and the official NSW record.</p>
+          </div>
+        </div>}
+
+        {setupStep === 2 && <div className="starter-stage ambition-stage">
+          <div className="ambition-main"><span className="stage-number">02 / Define success</span><h3>What should this<br />property become?</h3><div className="goal-grid">{([["home", "New home", "One considered residence"], ["dual", "Dual occupancy", "Two homes, one site"], ["renovation", "Major renovation", "Keep, rework and extend"]] as const).map(([value, title, note]) => <button key={value} className={projectGoal === value ? "active" : ""} onClick={() => setProjectGoal(value)}><span>{value === "home" ? "⌂" : value === "dual" ? "⌂⌂" : "↗"}</span><b>{title}</b><small>{note}</small></button>)}</div><h4>What matters most?</h4><div className="priority-cloud">{["Natural light", "Budget certainty", "Fast approval", "Resale value", "Energy performance", "Flexible living", "Landscape", "Low maintenance"].map((priority) => <button key={priority} className={priorities.includes(priority) ? "active" : ""} onClick={() => togglePriority(priority)}>{priorities.includes(priority) ? "✓ " : "+ "}{priority}</button>)}</div></div>
+          <aside className="pathway-choice"><span>Likely approval route</span><button className={roadmapPath === "cdc" ? "active" : ""} onClick={() => setRoadmapPath("cdc")}><i>FAST</i><b>CDC pathway</b><small>For eligible complying development. Certifier-led and typically faster.</small></button><button className={roadmapPath === "da" ? "active" : ""} onClick={() => setRoadmapPath("da")}><i>FULL</i><b>DA pathway</b><small>Council assessment for proposals outside the complying pathway.</small></button><p>FRC will confirm the pathway after reviewing controls, title, survey and the project brief.</p><button className="stage-next" onClick={() => setSetupStep(3)}>Generate success roadmap <span>→</span></button></aside>
+        </div>}
+
+        {setupStep === 3 && <div className="starter-stage roadmap-stage">
+          <div className="roadmap-summary"><span className="stage-number">03 / Roadmap generated</span><h3>From property<br />to <em>progress.</em></h3><div className="summary-address"><small>Project</small><strong>{projectAddress || "Your NSW property"}</strong><span>{lotDp || "Lot / DP pending"} · {landArea} m² · {frontage}m frontage</span></div><div className="roadmap-signal"><div><span>Project model</span><b>{projectGoal === "home" ? "New home" : projectGoal === "dual" ? "Dual occupancy" : "Major renovation"}</b></div><div><span>Working pathway</span><b>{roadmapPath.toUpperCase()}</b></div><div><span>Parcel status</span><b>{propertyVerified ? "Client verified" : "Pending"}</b></div><div><span>Success priorities</span><b>{priorities.length}</b></div></div><button className="download-roadmap" onClick={() => window.print()}>Print / save roadmap <span>↓</span></button><button className="restart-roadmap" onClick={() => setSetupStep(1)}>Edit project inputs</button></div>
+          <div className="roadmap-timeline">{roadmap.map(([number, title, detail, time], index) => <article key={number} style={{ "--delay": `${index * 55}ms` } as React.CSSProperties}><i>{number}</i><div><h4>{title}</h4><p>{detail}</p></div><span>{time}</span><b>{index === 0 && propertyVerified ? "Ready" : index === 1 ? "Start here" : "Upcoming"}</b></article>)}<div className="roadmap-cta"><div><small>Your highest-leverage next move</small><strong>Book the feasibility sprint.</strong><p>We validate the planning pathway, test the site and turn this roadmap into a project-specific proposal.</p></div><a href="mailto:hello@frcdesign.com.au?subject=Project feasibility sprint">Send this project to FRC <span>↗</span></a></div></div>
+        </div>}
+      </section>
       <footer><div className="brand footer-brand"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></div><p>Architecture, planning and documentation<br />for considered projects across Australia.</p><div><a href="#top">Back to top ↑</a><span>© 2026 FRC Design & Construction</span></div></footer>
     </main>
   );
