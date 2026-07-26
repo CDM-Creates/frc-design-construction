@@ -10,7 +10,7 @@ const capabilities = [
 ];
 
 const projects = [
-  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-floor-fixed.png", feature: true, gallery: ["/projects/betula/realistic-floor-fixed.png", "/projects/betula/drawing-floor-fixed.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
+  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-slab-projected.png", feature: true, gallery: ["/projects/betula/realistic-slab-projected.png", "/projects/betula/drawing-slab-projected.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
   { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
   { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.png", gallery: ["/projects/ai/alicante.png", "/projects/gallery/alicante/01.jpg", "/projects/gallery/alicante/02.jpg", "/projects/gallery/alicante/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
   { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.png", gallery: ["/projects/ai/varian.png", "/projects/gallery/varian/01.jpg", "/projects/gallery/varian/02.jpg", "/projects/gallery/varian/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
@@ -162,9 +162,13 @@ export default function Home() {
   }, [buildCost, consultants, pathway, projectType, scope, siteComplexity]);
 
   const p = Math.round(progress * 100);
-  const realReveal = Math.max(0, Math.min(1, (progress - .27) * 1.8));
+  const realReveal = Math.max(0, Math.min(1, (progress - .32) * 1.5));
   const storyTone = Math.round(247 - Math.min(1, progress * 1.12) * 233);
-  const archivePosition = Math.min(projects.length, Math.floor(archiveProgress * (projects.length + 1)));
+  const archiveStack = archiveProgress * (projects.length + 1);
+  const archivePosition = Math.min(projects.length, Math.floor(archiveStack));
+  const archiveExit = Math.max(0, archiveStack - projects.length) * 118;
+  const folderTransform = (step: number) => `translate3d(0, ${Math.max(0, Math.min(108, (step - archiveStack) * 108)) - archiveExit}%, 0)`;
+  const storyGridOpacity = realReveal < .72 ? 1 : Math.max(0, 1 - (realReveal - .72) / .28);
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
   const galleryFor = (index: number) => projects[index].gallery;
   const labelsFor = (index: number) => projects[index].labels;
@@ -262,58 +266,65 @@ export default function Home() {
       </header>
 
       <section className="folder-archive" id="project-wheel" ref={archiveRef} aria-labelledby="folder-archive-title">
-        <aside className="folder-scroll-rail" aria-hidden="true">
-          <div><span>Project archive</span><i><b style={{ transform: `scaleY(${archiveProgress})` }} /></i><strong>{String(archivePosition).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
-        </aside>
-
-        <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2 } as React.CSSProperties}>
-          <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
-          <div className="folder-cover-copy">
-            <span>Completed + resolved work</span>
-            <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
-            <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
-            <small>08 selected projects · scroll to open each file</small>
-          </div>
-          <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
-          <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
-        </article>
-
-        {projects.map((project, index) => <article
-          className={`folder-card folder-project-card folder-tone-${index % 4}`}
-          style={{ "--folder-top-desktop": `${94 + index * 6}px`, "--folder-top-mobile": `${106 + index * 3}px`, "--folder-tab-left": `${48 + index * 22}px`, zIndex: index + 3 } as React.CSSProperties}
-          id={`folder-${project.slug}`}
-          key={`folder-${project.slug}`}
-        >
-          <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
-          <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
-            <div className="folder-project-copy">
-              <span>Finalised project · {project.location}</span>
-              <h3>{project.name}</h3>
-              <p>{projectStories[project.slug]}</p>
-              <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
-              <small>Open the complete project <i>↗</i></small>
+        <div className="folder-stage">
+          <div className="folder-model-handoff" aria-hidden="true">
+            <div className="grid-field" />
+            <div className="chapter-count">01 / 04</div>
+            <div className="project-label"><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
+            <div className="model-frame handoff-model-frame">
+              <img className="model-image plan-image" src="/projects/betula/drawing-slab-projected.png" alt="" />
+              <div className="drawing-overlay"><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
             </div>
-            <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
-          </button>
-        </article>)}
+            <div className="scroll-meter"><span>Scroll to make it real</span><i /><span>01 / 04</span></div>
+          </div>
 
-        <div className="folder-release">
-          <span>Archive complete</span>
-          <strong>Now see how<br />an idea becomes <em>real.</em></strong>
-          <a href="#story">Continue to the model <i>↓</i></a>
+          <aside className="folder-scroll-rail" aria-hidden="true">
+            <div><span>Project archive</span><i><b style={{ transform: `scaleY(${archiveProgress})` }} /></i><strong>{String(archivePosition).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
+          </aside>
+
+          <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2, transform: folderTransform(0) } as React.CSSProperties}>
+            <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
+            <div className="folder-cover-copy">
+              <span>Completed + resolved work</span>
+              <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
+              <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
+              <small>08 selected projects · one small scroll opens each file</small>
+            </div>
+            <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
+            <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
+          </article>
+
+          {projects.map((project, index) => <article
+            className={`folder-card folder-project-card folder-tone-${index % 4}`}
+            style={{ "--folder-top-desktop": `${94 + index * 6}px`, "--folder-top-mobile": `${106 + index * 3}px`, "--folder-tab-left": `${48 + index * 22}px`, zIndex: index + 3, transform: folderTransform(index + 1) } as React.CSSProperties}
+            id={`folder-${project.slug}`}
+            key={`folder-${project.slug}`}
+          >
+            <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
+            <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
+              <div className="folder-project-copy">
+                <span>Finalised project · {project.location}</span>
+                <h3>{project.name}</h3>
+                <p>{projectStories[project.slug]}</p>
+                <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
+                <small>Open the complete project <i>↗</i></small>
+              </div>
+              <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
+            </button>
+          </article>)}
         </div>
       </section>
 
       <section className="story" id="story" ref={storyRef} style={{ backgroundColor: `rgb(${storyTone}, ${storyTone + 1}, ${storyTone - 3})` }}>
         <div className="story-sticky">
-          <div className="grid-field" style={{ opacity: Math.max(.08, 1 - progress * 1.25) }} />
+          <div className="grid-field" style={{ opacity: storyGridOpacity, "--grid-line": p > 42 ? "rgba(244,242,234,.14)" : "rgba(23,34,29,.12)" } as React.CSSProperties} />
           <div className="chapter-count" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</div>
           <div className="project-label" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
           <div className="model-frame" style={{ transform: `translate3d(0, ${Math.max(0, progress - .76) * -70}px, 0) scale(${.84 + Math.min(progress, .6) * .27})`, borderRadius: `${Math.max(0, 20 - progress * 30)}px` }}>
-            <img className="model-image plan-image" src="/projects/betula/drawing-floor-fixed.png" alt="Three-storey architectural model of the Betula Avenue dual occupancy with its right-hand floor slab resolved" />
+            <img className="model-image plan-image" src="/projects/betula/drawing-slab-projected.png" alt="Three-storey architectural model of the Betula Avenue dual occupancy with matching projecting floor slabs on both wings" />
             <div className="drawing-overlay" style={{ opacity: Math.max(0, 1 - progress * 1.8) }}><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
             <div className="reality-wipe" style={{ clipPath: `inset(0 0 0 ${100 - realReveal * 100}%)` }}>
-              <img className="context-image" src="/projects/betula/realistic-floor-fixed.png" alt="Photorealistic visualization of the three-storey Betula Avenue residence" />
+              <img className="context-image" src="/projects/betula/realistic-slab-projected.png" alt="Photorealistic visualization of the three-storey Betula Avenue residence with matching projecting floor slabs" />
             </div>
             <div className="reveal-line" style={{ left: `${realReveal * 100}%`, opacity: realReveal > .02 && realReveal < .98 ? 1 : 0 }}><span>DRAWING / BUILT FORM</span></div>
             <div className="frame-shade" style={{ opacity: Math.max(0, (progress - .66) * 1.8) }} />
@@ -349,8 +360,8 @@ export default function Home() {
           <dl><div><dt>Location</dt><dd>Betula Avenue</dd></div><div><dt>Typology</dt><dd>Detached dual occupancy</dd></div><div><dt>Scope</dt><dd>Architecture + documentation</dd></div><div><dt>Form</dt><dd>Three storeys + garages</dd></div></dl>
         </div>
         <div className="resolved-spread">
-          <div className="resolved-image drawing"><img src="/projects/betula/drawing-floor-fixed.png" alt="Three-storey Betula Avenue architectural model with a resolved right-hand floor slab" /><span>01 / Architectural model</span></div>
-          <div className="resolved-image reality"><img src="/projects/betula/realistic-floor-fixed.png" alt="Photoreal three-storey Betula Avenue exterior" /><span>02 / Resolved material study</span></div>
+          <div className="resolved-image drawing"><img src="/projects/betula/drawing-slab-projected.png" alt="Three-storey Betula Avenue architectural model with matching projected floor slabs" /><span>01 / Architectural model</span></div>
+          <div className="resolved-image reality"><img src="/projects/betula/realistic-slab-projected.png" alt="Photoreal three-storey Betula Avenue exterior with the right-hand floor projected forward" /><span>02 / Resolved material study</span></div>
           <div className="resolved-note"><small>Drawing → reality</small><strong>The geometry stays.<br />The experience arrives.</strong><p>Exact massing, openings and proportions—resolved through natural light, tactile materials and landscape.</p></div>
         </div>
       </section>
