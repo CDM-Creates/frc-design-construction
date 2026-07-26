@@ -20,6 +20,17 @@ const projects = [
   { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
 ];
 
+const projectStories: Record<string, string> = {
+  betula: "A confident three-storey dual occupancy resolved as one calm address, with generous family living and privacy held in balance.",
+  "crown-line": "A warm country residence shaped around long views, sheltered outdoor living and an honest palette of stone, timber and metal.",
+  alicante: "Two contemporary homes composed with a shared architectural language while protecting light, identity and everyday privacy.",
+  varian: "A refined pair of homes that turns a demanding suburban brief into a clear, composed street presence.",
+  norwest: "A hospitality and wellness environment organised around arrival, calm circulation and moments of retreat.",
+  "market-street": "An existing home reworked through a precise addition, giving old and new a single confident architectural character.",
+  glenda: "A compact residential addition that finds more space, light and connection without losing the familiarity of home.",
+  "good-shepherd": "A community room designed for gathering, conversation and quiet flexibility within a restrained material envelope.",
+};
+
 const materialSchemes = [
   { name: "Warm mineral", note: "Soft, enduring and naturally tactile.", colours: ["#d8cdbc", "#867765", "#332f2a"], tags: ["Mineral render", "Spotted gum", "Bronze aluminium"] },
   { name: "Quiet contrast", note: "A crisp palette with grounded depth.", colours: ["#eeeae0", "#515954", "#191d1b"], tags: ["Fine render", "Textured masonry", "Charcoal metal"] },
@@ -48,9 +59,9 @@ type SiteAnalysis = {
 
 export default function Home() {
   const storyRef = useRef<HTMLElement>(null);
-  const wheelRef = useRef<HTMLElement>(null);
+  const archiveRef = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
-  const [wheelProgress, setWheelProgress] = useState(0);
+  const [archiveProgress, setArchiveProgress] = useState(0);
   const [projectType, setProjectType] = useState<"new" | "dual" | "reno">("dual");
   const [scope, setScope] = useState<"concept" | "approval" | "full">("full");
   const [buildCost, setBuildCost] = useState(1400);
@@ -91,10 +102,10 @@ export default function Home() {
         const distance = storyRef.current.offsetHeight - window.innerHeight;
         setProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
       }
-      if (wheelRef.current) {
-        const rect = wheelRef.current.getBoundingClientRect();
-        const distance = wheelRef.current.offsetHeight - window.innerHeight;
-        setWheelProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
+      if (archiveRef.current) {
+        const rect = archiveRef.current.getBoundingClientRect();
+        const distance = archiveRef.current.offsetHeight - window.innerHeight;
+        setArchiveProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
       }
     };
     update();
@@ -152,7 +163,8 @@ export default function Home() {
 
   const p = Math.round(progress * 100);
   const realReveal = Math.max(0, Math.min(1, (progress - .27) * 1.8));
-  const storyTone = Math.round(233 - Math.min(1, progress * 1.18) * 218);
+  const storyTone = Math.round(247 - Math.min(1, progress * 1.12) * 233);
+  const archivePosition = Math.min(projects.length, Math.floor(archiveProgress * (projects.length + 1)));
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
   const galleryFor = (index: number) => projects[index].gallery;
   const labelsFor = (index: number) => projects[index].labels;
@@ -249,27 +261,46 @@ export default function Home() {
         <a className="welcome-scroll" href="#project-wheel"><span>One small scroll</span><i /></a>
       </header>
 
-      <section className="project-wheel-section" id="project-wheel" ref={wheelRef} aria-labelledby="project-wheel-title">
-        <div className="project-wheel-sticky">
-          <header className="wheel-heading"><span>Completed + resolved work</span><h2 id="project-wheel-title">A family of<br /><em>places.</em></h2><p>Turn the wheel. Open any project. See how each brief became its own architecture.</p></header>
-          <div className="project-wheel" style={{ "--wheel-turn": `${wheelProgress * 52}deg` } as React.CSSProperties}>
-            <div className="wheel-core"><small>FRC project archive</small><strong>{String(projects.length).padStart(2, "0")}</strong><span>selected projects</span></div>
-            {projects.map((project, index) => {
-              const angle = index * (360 / projects.length) + wheelProgress * 52;
-              return <button
-                type="button"
-                className="wheel-project"
-                key={`wheel-${project.slug}`}
-                style={{ "--wheel-angle": `${angle}deg`, "--wheel-counter": `${-angle}deg` } as React.CSSProperties}
-                onClick={() => { setActiveProject(index); setActiveSlide(0); }}
-                aria-label={`Open ${project.name} project gallery`}
-              >
-                <img src={project.image} alt="" />
-                <span><i>{String(index + 1).padStart(2, "0")}</i><b>{project.name}</b><small>{project.type}</small></span>
-              </button>;
-            })}
+      <section className="folder-archive" id="project-wheel" ref={archiveRef} aria-labelledby="folder-archive-title">
+        <aside className="folder-scroll-rail" aria-hidden="true">
+          <div><span>Project archive</span><i><b style={{ transform: `scaleY(${archiveProgress})` }} /></i><strong>{String(archivePosition).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
+        </aside>
+
+        <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2 } as React.CSSProperties}>
+          <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
+          <div className="folder-cover-copy">
+            <span>Completed + resolved work</span>
+            <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
+            <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
+            <small>08 selected projects · scroll to open each file</small>
           </div>
-          <div className="wheel-progress"><span>Scroll to turn the archive</span><i><b style={{ transform: `scaleX(${wheelProgress})` }} /></i><strong>{String(Math.max(1, Math.ceil(wheelProgress * projects.length))).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
+          <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
+          <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
+        </article>
+
+        {projects.map((project, index) => <article
+          className={`folder-card folder-project-card folder-tone-${index % 4}`}
+          style={{ "--folder-top-desktop": `${94 + index * 6}px`, "--folder-top-mobile": `${106 + index * 3}px`, "--folder-tab-left": `${48 + index * 22}px`, zIndex: index + 3 } as React.CSSProperties}
+          id={`folder-${project.slug}`}
+          key={`folder-${project.slug}`}
+        >
+          <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
+          <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
+            <div className="folder-project-copy">
+              <span>Finalised project · {project.location}</span>
+              <h3>{project.name}</h3>
+              <p>{projectStories[project.slug]}</p>
+              <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
+              <small>Open the complete project <i>↗</i></small>
+            </div>
+            <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
+          </button>
+        </article>)}
+
+        <div className="folder-release">
+          <span>Archive complete</span>
+          <strong>Now see how<br />an idea becomes <em>real.</em></strong>
+          <a href="#story">Continue to the model <i>↓</i></a>
         </div>
       </section>
 
@@ -288,7 +319,8 @@ export default function Home() {
             <div className="frame-shade" style={{ opacity: Math.max(0, (progress - .66) * 1.8) }} />
           </div>
           <div className={`story-copy copy-one ${p > 8 && p < 35 ? "visible" : ""}`}><span className="eyebrow">01 · Draw the idea</span><h1>Every home starts<br />as a <em>possibility.</em></h1></div>
-          <div className={`story-copy copy-two ${p >= 40 && p < 70 ? "visible" : ""}`}><span className="eyebrow">02 · Resolve the detail</span><h2>Line by line,<br />it becomes <em>real.</em></h2></div>
+          <div className={`story-copy copy-two ${p >= 38 && p < 56 ? "visible" : ""}`}><span className="eyebrow">02 · Resolve the detail</span><h2>Line by line,<br />it becomes <em>real.</em></h2></div>
+          <div className={`story-quote ${p >= 58 && p < 74 ? "visible" : ""}`}><span>FRC Design + Construction</span><blockquote>“We don’t begin with a style. We begin with your land, your life and what the project must become.”</blockquote></div>
           <div className={`story-copy copy-three ${p >= 74 ? "visible" : ""}`}><span className="eyebrow">03 · Start with your land</span><h2>Your dimensions.<br /><em>Your</em> possibilities.</h2></div>
           <form className={`story-brief ${p >= 74 ? "visible" : ""}`} onSubmit={inspectSite} aria-label="Start a property feasibility check">
             <header><span>04 / Quick site brief</span><h3>What could you create here?</h3><p>Enter what you already know. The simulator will carry it forward and check the address against NSW planning layers.</p></header>
