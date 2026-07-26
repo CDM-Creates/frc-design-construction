@@ -59,9 +59,7 @@ type SiteAnalysis = {
 
 export default function Home() {
   const storyRef = useRef<HTMLElement>(null);
-  const archiveRef = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
-  const [archiveProgress, setArchiveProgress] = useState(0);
   const [projectType, setProjectType] = useState<"new" | "dual" | "reno">("dual");
   const [scope, setScope] = useState<"concept" | "approval" | "full">("full");
   const [buildCost, setBuildCost] = useState(1400);
@@ -101,11 +99,6 @@ export default function Home() {
         const rect = storyRef.current.getBoundingClientRect();
         const distance = storyRef.current.offsetHeight - window.innerHeight;
         setProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
-      }
-      if (archiveRef.current) {
-        const rect = archiveRef.current.getBoundingClientRect();
-        const distance = archiveRef.current.offsetHeight - window.innerHeight;
-        setArchiveProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
       }
     };
     update();
@@ -161,9 +154,12 @@ export default function Home() {
     };
   }, [buildCost, consultants, pathway, projectType, scope, siteComplexity]);
 
-  const p = Math.round(progress * 100);
-  const realReveal = Math.max(0, Math.min(1, (progress - .32) * 1.5));
-  const storyTone = Math.round(247 - Math.min(1, progress * 1.12) * 233);
+  const archiveCutoff = .23;
+  const archiveProgress = Math.max(0, Math.min(1, progress / archiveCutoff));
+  const storyProgress = Math.max(0, Math.min(1, (progress - archiveCutoff) / (1 - archiveCutoff)));
+  const p = Math.round(storyProgress * 100);
+  const realReveal = Math.max(0, Math.min(1, (storyProgress - .32) * 1.5));
+  const storyTone = Math.round(247 - Math.min(1, storyProgress * 1.12) * 233);
   const archiveStack = archiveProgress * (projects.length + 1);
   const archivePosition = Math.min(projects.length, Math.floor(archiveStack));
   const archiveExit = Math.max(0, archiveStack - projects.length) * 118;
@@ -265,69 +261,19 @@ export default function Home() {
         <a className="welcome-scroll" href="#project-wheel"><span>One small scroll</span><i /></a>
       </header>
 
-      <section className="folder-archive" id="project-wheel" ref={archiveRef} aria-labelledby="folder-archive-title">
-        <div className="folder-stage">
-          <div className="folder-model-handoff" aria-hidden="true">
-            <div className="grid-field" />
-            <div className="chapter-count">01 / 04</div>
-            <div className="project-label"><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
-            <div className="model-frame handoff-model-frame">
-              <img className="model-image plan-image" src="/projects/betula/drawing-slab-projected.png" alt="" />
-              <div className="drawing-overlay"><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
-            </div>
-            <div className="scroll-meter"><span>Scroll to make it real</span><i /><span>01 / 04</span></div>
-          </div>
-
-          <aside className="folder-scroll-rail" aria-hidden="true">
-            <div><span>Project archive</span><i><b style={{ transform: `scaleY(${archiveProgress})` }} /></i><strong>{String(archivePosition).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
-          </aside>
-
-          <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2, transform: folderTransform(0) } as React.CSSProperties}>
-            <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
-            <div className="folder-cover-copy">
-              <span>Completed + resolved work</span>
-              <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
-              <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
-              <small>08 selected projects · one small scroll opens each file</small>
-            </div>
-            <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
-            <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
-          </article>
-
-          {projects.map((project, index) => <article
-            className={`folder-card folder-project-card folder-tone-${index % 4}`}
-            style={{ "--folder-top-desktop": `${94 + index * 6}px`, "--folder-top-mobile": `${106 + index * 3}px`, "--folder-tab-left": `${48 + index * 22}px`, zIndex: index + 3, transform: folderTransform(index + 1) } as React.CSSProperties}
-            id={`folder-${project.slug}`}
-            key={`folder-${project.slug}`}
-          >
-            <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
-            <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
-              <div className="folder-project-copy">
-                <span>Finalised project · {project.location}</span>
-                <h3>{project.name}</h3>
-                <p>{projectStories[project.slug]}</p>
-                <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
-                <small>Open the complete project <i>↗</i></small>
-              </div>
-              <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
-            </button>
-          </article>)}
-        </div>
-      </section>
-
-      <section className="story" id="story" ref={storyRef} style={{ backgroundColor: `rgb(${storyTone}, ${storyTone + 1}, ${storyTone - 3})` }}>
-        <div className="story-sticky">
+      <section className="story experience-story" id="project-wheel" ref={storyRef} style={{ backgroundColor: `rgb(${storyTone}, ${storyTone + 1}, ${storyTone - 3})` }} aria-labelledby="folder-archive-title">
+        <div className="story-sticky" id="story">
           <div className="grid-field" style={{ opacity: storyGridOpacity, "--grid-line": p > 42 ? "rgba(244,242,234,.14)" : "rgba(23,34,29,.12)" } as React.CSSProperties} />
-          <div className="chapter-count" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</div>
+          <div className="chapter-count" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}>{String(Math.max(1, Math.min(4, Math.ceil(storyProgress * 4)))).padStart(2, "0")} / 04</div>
           <div className="project-label" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
-          <div className="model-frame" style={{ transform: `translate3d(0, ${Math.max(0, progress - .76) * -70}px, 0) scale(${.84 + Math.min(progress, .6) * .27})`, borderRadius: `${Math.max(0, 20 - progress * 30)}px` }}>
+          <div className="model-frame" style={{ transform: `translate3d(0, ${Math.max(0, storyProgress - .76) * -70}px, 0) scale(${.84 + Math.min(storyProgress, .6) * .27})`, borderRadius: `${Math.max(0, 20 - storyProgress * 30)}px` }}>
             <img className="model-image plan-image" src="/projects/betula/drawing-slab-projected.png" alt="Three-storey architectural model of the Betula Avenue dual occupancy with matching projecting floor slabs on both wings" />
-            <div className="drawing-overlay" style={{ opacity: Math.max(0, 1 - progress * 1.8) }}><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
+            <div className="drawing-overlay" style={{ opacity: Math.max(0, 1 - storyProgress * 1.8) }}><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
             <div className="reality-wipe" style={{ clipPath: `inset(0 0 0 ${100 - realReveal * 100}%)` }}>
               <img className="context-image" src="/projects/betula/realistic-slab-projected.png" alt="Photorealistic visualization of the three-storey Betula Avenue residence with matching projecting floor slabs" />
             </div>
             <div className="reveal-line" style={{ left: `${realReveal * 100}%`, opacity: realReveal > .02 && realReveal < .98 ? 1 : 0 }}><span>DRAWING / BUILT FORM</span></div>
-            <div className="frame-shade" style={{ opacity: Math.max(0, (progress - .66) * 1.8) }} />
+            <div className="frame-shade" style={{ opacity: Math.max(0, (storyProgress - .66) * 1.8) }} />
           </div>
           <div className={`story-copy copy-one ${p > 8 && p < 35 ? "visible" : ""}`}><span className="eyebrow">01 · Draw the idea</span><h1>Every home starts<br />as a <em>possibility.</em></h1></div>
           <div className={`story-copy copy-two ${p >= 38 && p < 56 ? "visible" : ""}`}><span className="eyebrow">02 · Resolve the detail</span><h2>Line by line,<br />it becomes <em>real.</em></h2></div>
@@ -348,7 +294,44 @@ export default function Home() {
             <div className="story-site-readout"><span>Known site</span><strong>{frontage}m × {depth}m</strong><small>{landArea.toLocaleString()} m² supplied by you · exact restrictions checked next</small></div>
             <button type="submit">Inspect what fits <span>→</span></button>
           </form>
-          <div className="scroll-meter" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${progress})`, background: p > 42 ? "#f4f2ea" : "#17221d" }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</span></div>
+          <div className="scroll-meter" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${storyProgress})`, background: p > 42 ? "#f4f2ea" : "#17221d" }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(storyProgress * 4)))).padStart(2, "0")} / 04</span></div>
+
+          <div className="folder-layer" style={{ pointerEvents: archiveProgress >= 1 ? "none" : "auto" }}>
+            <aside className="folder-scroll-rail" aria-hidden="true" style={{ opacity: Math.max(0, 1 - Math.max(0, archiveProgress - .9) * 10) }}>
+              <div><span>Project archive</span><i><b style={{ transform: `scaleY(${archiveProgress})` }} /></i><strong>{String(archivePosition).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
+            </aside>
+
+            <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2, transform: folderTransform(0) } as React.CSSProperties}>
+              <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
+              <div className="folder-cover-copy">
+                <span>Completed + resolved work</span>
+                <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
+                <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
+                <small>08 selected projects · one small scroll opens each file</small>
+              </div>
+              <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
+              <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
+            </article>
+
+            {projects.map((project, index) => <article
+              className={`folder-card folder-project-card folder-tone-${index % 4}`}
+              style={{ "--folder-top-desktop": `${94 + index * 6}px`, "--folder-top-mobile": `${106 + index * 3}px`, "--folder-tab-left": `${48 + index * 22}px`, zIndex: index + 3, transform: folderTransform(index + 1) } as React.CSSProperties}
+              id={`folder-${project.slug}`}
+              key={`folder-${project.slug}`}
+            >
+              <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
+              <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
+                <div className="folder-project-copy">
+                  <span>Finalised project · {project.location}</span>
+                  <h3>{project.name}</h3>
+                  <p>{projectStories[project.slug]}</p>
+                  <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
+                  <small>Open the complete project <i>↗</i></small>
+                </div>
+                <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
+              </button>
+            </article>)}
+          </div>
         </div>
       </section>
 
