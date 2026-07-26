@@ -224,7 +224,7 @@ export async function POST(request: Request) {
     const address = inputs.address ?? `${inputs.streetAddress ?? ""}, ${inputs.suburb ?? ""} NSW ${inputs.postcode ?? ""}`;
     const parsed = parseAddress(address);
     if (!parsed) {
-      return Response.json({ error: "Enter a complete NSW address, including suburb, such as “31 Crown Line Drive, Rothbury NSW 2320”." }, { status: 400 });
+      return Response.json({ error: "Enter a complete NSW street address, suburb and postcode so the official parcel can be matched privately." }, { status: 400 });
     }
 
     const addressParams = new URLSearchParams({

@@ -10,14 +10,16 @@ const capabilities = [
 ];
 
 const projects = [
-  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-slab-projected.png", feature: true, gallery: ["/projects/betula/realistic-slab-projected.png", "/projects/betula/drawing-slab-projected.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
-  { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
-  { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.png", gallery: ["/projects/ai/alicante.png", "/projects/gallery/alicante/01.jpg", "/projects/gallery/alicante/02.jpg", "/projects/gallery/alicante/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
-  { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.png", gallery: ["/projects/ai/varian.png", "/projects/gallery/varian/01.jpg", "/projects/gallery/varian/02.jpg", "/projects/gallery/varian/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
-  { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.png", gallery: ["/projects/ai/norwest.png", "/projects/gallery/norwest/01.jpg", "/projects/gallery/norwest/02.jpg", "/projects/gallery/norwest/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
-  { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
-  { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
-  { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-slab-projected.png", feature: true, folio: "/projects/folios/betula-public-folio.pdf", gallery: ["/projects/betula/realistic-slab-projected.png", "/projects/betula/drawing-slab-projected.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
+  { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", folio: "/projects/folios/crown-line-public-folio.pdf", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
+  { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.png", folio: "/projects/folios/alicante-public-folio.pdf", gallery: ["/projects/ai/alicante.png", "/projects/gallery/alicante/01.jpg", "/projects/gallery/alicante/02.jpg", "/projects/gallery/alicante/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Site and demolition study", "Floor planning study"] },
+  { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.png", folio: "/projects/folios/varian-public-folio.pdf", gallery: ["/projects/ai/varian.png", "/projects/gallery/varian/01.jpg", "/projects/gallery/varian/02.jpg", "/projects/gallery/varian/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Upper floor planning study", "Spatial studies"] },
+  { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.png", folio: "/projects/folios/norwest-public-folio.pdf", gallery: ["/projects/ai/norwest.png", "/projects/gallery/norwest/01.jpg", "/projects/gallery/norwest/02.jpg", "/projects/gallery/norwest/03.jpg"], labels: ["AI-enhanced perspective", "Interior and isometric studies", "Floor planning study", "Detail study"] },
+  { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", folio: "/projects/folios/market-street-public-folio.pdf", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor planning study", "Isometric study"] },
+  { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", folio: "/projects/folios/glenda-public-folio.pdf", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Demolition study", "Elevation and section study"] },
+  { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", folio: "/projects/folios/good-shepherd-public-folio.pdf", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Exterior and interior studies", "Site and floor planning study", "Isometric study"] },
+  { slug: "wills-road", name: "Wills Road Pool House", location: "Long Point, NSW", type: "Pool + landscape", image: "/projects/ai/wills-road.png", folio: "/projects/folios/wills-road-public-folio.pdf", gallery: ["/projects/ai/wills-road.png", "/projects/gallery/wills-road/01.jpg", "/projects/gallery/wills-road/02.jpg", "/projects/gallery/wills-road/03.jpg"], labels: ["AI-enhanced site study", "Site development plan", "Pool plan and section", "Pool and landscape isometric"] },
+  { slug: "kingsford", name: "Kingsford Residences", location: "Kingsford, NSW", type: "Multi-residential", image: "/projects/ai/kingsford.png", folio: "/projects/folios/kingsford-public-folio.pdf", gallery: ["/projects/ai/kingsford.png", "/projects/gallery/kingsford/01.jpg", "/projects/gallery/kingsford/02.jpg", "/projects/gallery/kingsford/03.jpg"], labels: ["AI-enhanced perspective", "Perspective studies", "Ground floor planning study", "Elevation study"] },
 ];
 
 const projectStories: Record<string, string> = {
@@ -29,6 +31,8 @@ const projectStories: Record<string, string> = {
   "market-street": "An existing home reworked through a precise addition, giving old and new a single confident architectural character.",
   glenda: "A compact residential addition that finds more space, light and connection without losing the familiarity of home.",
   "good-shepherd": "A community room designed for gathering, conversation and quiet flexibility within a restrained material envelope.",
+  "wills-road": "A pool and landscape pavilion that turns a generous rural site into a connected place for recreation, retreat and outdoor living.",
+  kingsford: "A multi-residential project composed around efficient planning, durable materials and a considered relationship to the street.",
 };
 
 const materialSchemes = [
@@ -39,8 +43,11 @@ const materialSchemes = [
 
 type SiteAnalysis = {
   matchedAddress: string;
+  addressDetails?: { streetAddress: string; suburb: string; postcode: string };
   council: string;
   area: number | null;
+  lotDp?: string;
+  siteDimensions?: { frontage: number | null; depth: number | null; source: string };
   boundary: number[][];
   controls: { zone: string; zoneName: string; lep: string; maxHeight: string | null; fsr: string | null; minimumLotSize: string | null; heritage: string | null };
   opportunities: string[][];
@@ -92,6 +99,7 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<SiteAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const privateStreetAddress = useRef("");
 
   useEffect(() => {
     const update = () => {
@@ -112,10 +120,11 @@ export default function Home() {
 
   useEffect(() => {
     if (activeProject === null) return;
+    const slideCount = projects[activeProject].gallery.length;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setActiveProject(null);
-      if (event.key === "ArrowLeft") setActiveSlide((slide) => (slide + 3) % 4);
-      if (event.key === "ArrowRight") setActiveSlide((slide) => (slide + 1) % 4);
+      if (event.key === "ArrowLeft") setActiveSlide((slide) => (slide - 1 + slideCount) % slideCount);
+      if (event.key === "ArrowRight") setActiveSlide((slide) => (slide + 1) % slideCount);
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKeyDown);
@@ -176,22 +185,31 @@ export default function Home() {
     return `polygon(${analysis.boundary.map(([x, y]) => `${8 + ((x - minX) / (maxX - minX || 1)) * 84}% ${8 + (1 - (y - minY) / (maxY - minY || 1)) * 84}%`).join(",")})`;
   }, [analysis]);
   const togglePriority = (priority: string) => setPriorities((current) => current.includes(priority) ? current.filter((item) => item !== priority) : [...current, priority]);
+  const updateStreetAddress = (value: string) => {
+    privateStreetAddress.current = "";
+    setStreetAddress(value);
+    setAnalysis(null);
+    setPropertyVerified(false);
+  };
   const inspectSite = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const params = new URLSearchParams({
-      source: "intro",
-      streetAddress,
-      suburb,
-      postcode,
-      knownLandArea: String(landArea),
-      frontage: String(frontage),
-      depth: String(depth),
-      projectGoal,
-      storeys: String(storeys),
-      bedrooms: String(bedrooms),
-      parking: String(parking),
-    });
-    window.location.assign(`/simulator?${params.toString()}`);
+    try {
+      sessionStorage.setItem("frc-private-site-brief", JSON.stringify({
+        streetAddress: privateStreetAddress.current || streetAddress,
+        suburb,
+        postcode,
+        knownLandArea: String(landArea),
+        frontage: String(frontage),
+        depth: String(depth),
+        projectGoal,
+        storeys: String(storeys),
+        bedrooms: String(bedrooms),
+        parking: String(parking),
+      }));
+    } catch {
+      // If private session storage is unavailable, the simulator opens without carrying the address.
+    }
+    window.location.assign("/simulator?source=intro");
   };
   const analyseProperty = async () => {
     setAnalysisLoading(true);
@@ -201,11 +219,21 @@ export default function Home() {
       const response = await fetch("/api/site-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, parking, projectGoal }),
+        body: JSON.stringify({ streetAddress: privateStreetAddress.current || streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, parking, projectGoal }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Property analysis failed.");
-      setAnalysis(result);
+      const safeSuburb = result.addressDetails?.suburb ?? suburb;
+      const safePostcode = result.addressDetails?.postcode ?? postcode;
+      privateStreetAddress.current = result.matchedAddress;
+      setStreetAddress(`Private property — ${safeSuburb}, NSW ${safePostcode}`);
+      setAnalysis({ ...result, matchedAddress: [safeSuburb, safePostcode && `NSW ${safePostcode}`].filter(Boolean).join(", ") });
+      setSuburb(safeSuburb);
+      setPostcode(safePostcode);
+      if (result.lotDp) setLotDp(result.lotDp);
+      if (result.area) setLandArea(Math.round(result.area));
+      if (result.siteDimensions?.frontage) setFrontage(result.siteDimensions.frontage);
+      if (result.siteDimensions?.depth) setDepth(result.siteDimensions.depth);
       setPropertyVerified(true);
     } catch (error) {
       setPropertyVerified(false);
@@ -214,7 +242,7 @@ export default function Home() {
       setAnalysisLoading(false);
     }
   };
-  const projectAddress = [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
+  const projectAddress = [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
   const roadmap = useMemo(() => {
     const approvalWeeks = roadmapPath === "cdc" ? "6-10 weeks" : "4-8 months";
     const designWeeks = projectGoal === "renovation" ? "8-12 weeks" : projectGoal === "dual" ? "10-16 weeks" : "8-14 weeks";
@@ -282,16 +310,16 @@ export default function Home() {
           <form className={`story-brief ${p >= 74 ? "visible" : ""}`} onSubmit={inspectSite} aria-label="Start a property feasibility check">
             <header><span>04 / Quick site brief</span><h3>What could you create here?</h3><p>Enter what you already know. The simulator will carry it forward and check the address against NSW planning layers.</p></header>
             <div className="story-brief-grid">
-              <label className="wide"><span>Street address</span><input required value={streetAddress} onChange={(event) => setStreetAddress(event.target.value)} placeholder="88 Hyatts Road" /></label>
-              <label><span>Suburb</span><input required value={suburb} onChange={(event) => setSuburb(event.target.value)} placeholder="Oakhurst" /></label>
-              <label><span>Postcode</span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={postcode} onChange={(event) => setPostcode(event.target.value.replace(/\D/g, ""))} placeholder="2761" /></label>
+              <label className="wide"><span>Street address <small>kept private</small></span><input required autoComplete="street-address" value={streetAddress} onChange={(event) => updateStreetAddress(event.target.value)} placeholder="Enter the property street address" /></label>
+              <label><span>Suburb</span><input required value={suburb} onChange={(event) => setSuburb(event.target.value)} placeholder="Your NSW suburb" /></label>
+              <label><span>Postcode</span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={postcode} onChange={(event) => setPostcode(event.target.value.replace(/\D/g, ""))} placeholder="NSW postcode" /></label>
               <label><span>Plot area</span><div><input required type="number" min="1" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /><b>m²</b></div></label>
               <label><span>Frontage</span><div><input required type="number" min="1" step=".1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /><b>m</b></div></label>
               <label><span>Approx. depth</span><div><input required type="number" min="1" step=".1" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /><b>m</b></div></label>
               <label><span>Project type</span><select value={projectGoal} onChange={(event) => setProjectGoal(event.target.value as typeof projectGoal)}><option value="home">New home</option><option value="dual">Dual occupancy</option><option value="renovation">Renovate + extend</option></select></label>
               <label><span>Floors wanted</span><input type="number" min="1" max="6" value={storeys} onChange={(event) => setStoreys(Number(event.target.value))} /></label>
             </div>
-            <div className="story-site-readout"><span>Known site</span><strong>{frontage}m × {depth}m</strong><small>{landArea.toLocaleString()} m² supplied by you · exact restrictions checked next</small></div>
+            <div className="story-site-readout"><span>Private site check</span><strong>{frontage}m × {depth}m</strong><small>{landArea.toLocaleString()} m² supplied by you · public results show suburb only</small></div>
             <button type="submit">Inspect what fits <span>→</span></button>
           </form>
           <div className="scroll-meter" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${storyProgress})`, background: p > 42 ? "#f4f2ea" : "#17221d" }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(storyProgress * 4)))).padStart(2, "0")} / 04</span></div>
@@ -307,10 +335,10 @@ export default function Home() {
                 <span>Completed + resolved work</span>
                 <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
                 <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
-                <small>08 selected projects · one small scroll opens each file</small>
+                <small>{String(projects.length).padStart(2, "0")} selected projects · one small scroll opens each file</small>
               </div>
               <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
-              <div className="folder-cover-index"><strong>08</strong><span>Selected<br />projects</span></div>
+              <div className="folder-cover-index"><strong>{String(projects.length).padStart(2, "0")}</strong><span>Selected<br />projects</span></div>
             </article>
 
             {projects.map((project, index) => <article
@@ -384,7 +412,11 @@ export default function Home() {
           <div className="project-viewer">
             <header><div><span>{projects[activeProject].location} · {projects[activeProject].type}</span><h2>{projects[activeProject].name}</h2></div><button type="button" onClick={() => setActiveProject(null)}>Close ×</button></header>
             <div className={`viewer-image ${activeSlide > 0 ? "drawing" : ""}`}><img src={galleryFor(activeProject)[activeSlide]} alt={`${projects[activeProject].name}: ${labelsFor(activeProject)[activeSlide]}`} /></div>
-            <footer><div><span>{String(activeSlide + 1).padStart(2, "0")} / 04</span><strong>{labelsFor(activeProject)[activeSlide]}</strong></div><div className="viewer-controls"><button onClick={() => setActiveSlide((slide) => (slide + 3) % 4)}>←</button><button onClick={() => setActiveSlide((slide) => (slide + 1) % 4)}>→</button></div></footer>
+            <footer>
+              <div><span>{String(activeSlide + 1).padStart(2, "0")} / {String(galleryFor(activeProject).length).padStart(2, "0")}</span><strong>{labelsFor(activeProject)[activeSlide]}</strong></div>
+              <a className="public-folio-link" href={projects[activeProject].folio} target="_blank" rel="noreferrer">Open public drawing folio <span>↗</span><small>Client details removed</small></a>
+              <div className="viewer-controls"><button onClick={() => setActiveSlide((slide) => (slide - 1 + galleryFor(activeProject).length) % galleryFor(activeProject).length)}>←</button><button onClick={() => setActiveSlide((slide) => (slide + 1) % galleryFor(activeProject).length)}>→</button></div>
+            </footer>
           </div>
         </div>
       )}
@@ -438,8 +470,8 @@ export default function Home() {
           <div className="property-form">
             <span className="stage-number">01 / Establish the ground truth</span>
             <h3>Start with the land,<br />not assumptions.</h3>
-            <p>Enter one complete NSW address. FRC Site Intelligence will resolve the official property record and interrogate the live statewide planning layers automatically.</p>
-            <div className="input-grid"><label><span>Street address</span><input value={streetAddress} onChange={(event) => { setStreetAddress(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="31 Crown Line Drive" /></label><label><span>Suburb</span><input value={suburb} onChange={(event) => { setSuburb(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="Rothbury" /></label><label><span>Postcode</span><input value={postcode} maxLength={4} onChange={(event) => { setPostcode(event.target.value.replace(/\\D/g, "")); setAnalysis(null); setPropertyVerified(false); }} placeholder="2320" /></label></div>
+            <p>Enter one complete NSW address. It is used privately to resolve the official parcel; the generated overview shows only the suburb and postcode.</p>
+            <div className="input-grid"><label><span>Street address <small>private lookup only</small></span><input autoComplete="street-address" value={streetAddress} onChange={(event) => updateStreetAddress(event.target.value)} placeholder="Enter the property street address" /></label><label><span>Suburb</span><input value={suburb} onChange={(event) => { setSuburb(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="Your NSW suburb" /></label><label><span>Postcode</span><input value={postcode} maxLength={4} onChange={(event) => { setPostcode(event.target.value.replace(/\\D/g, "")); setAnalysis(null); setPropertyVerified(false); }} placeholder="NSW postcode" /></label></div>
             <div className="input-grid three"><label><span>Plot area</span><input type="number" min="1" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /></label><label><span>Frontage (m)</span><input type="number" min="1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /></label><label><span>Approx. depth (m)</span><input type="number" min="1" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label></div>
             <div className="input-grid three"><label><span>Lot / DP <small>optional</small></span><input value={lotDp} onChange={(event) => setLotDp(event.target.value)} placeholder="Lot 12 / DP 123456" /></label><label><span>Site slope</span><select value={slope} onChange={(event) => setSlope(event.target.value as typeof slope)}><option value="flat">Flat</option><option value="gentle">Gentle</option><option value="steep">Steep</option></select></label><label><span>Lot type</span><select value={lotType} onChange={(event) => setLotType(event.target.value as typeof lotType)}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label></div>
             <div className="build-choice">{([['home','New home'],['dual','Dual occupancy'],['renovation','Renovate + extend']] as const).map(([value,label]) => <button type="button" className={projectGoal === value ? "active" : ""} onClick={() => setProjectGoal(value)} key={value}>{label}</button>)}</div>
@@ -447,13 +479,13 @@ export default function Home() {
             <label className="toggle-field"><input type="checkbox" checked={existingDwelling} onChange={(event) => setExistingDwelling(event.target.checked)} /><span>Existing dwelling on the site</span></label>
             <button className="analyse-property" disabled={!streetAddress || !suburb || postcode.length !== 4 || analysisLoading} onClick={analyseProperty}>{analysisLoading ? <><i className="analysis-spinner" />Reading NSW planning layers…</> : <>Show what is realistic <span>→</span></>}</button>
             {analysisError && <div className="analysis-error"><b>We couldn’t complete that address.</b><span>{analysisError}</span></div>}
-            {!analysis && !analysisLoading && <div className="analysis-promise"><span>Live report includes</span><div><b>Zoning</b><b>Height</b><b>FSR</b><b>Lot size</b><b>Heritage</b><b>Parcel area</b></div><small>No sign-up. Results come from official NSW spatial services.</small></div>}
-            {analysis && <div className="analysis-confirmation"><div><i>✓</i><span><b>Official property matched</b><small>{analysis.matchedAddress} · {analysis.council} Council</small></span></div><dl><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>Planning instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Official parcel area</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²</dd></div><div><dt>Data status</dt><dd>Live NSW layers</dd></div></dl></div>}
+            {!analysis && !analysisLoading && <div className="analysis-promise"><span>Live report includes</span><div><b>Zoning</b><b>Height</b><b>FSR</b><b>Lot size</b><b>Heritage</b><b>Parcel area</b></div><small>No sign-up. Official NSW spatial services are used for the lookup; the street address stays out of the public result.</small></div>}
+            {analysis && <div className="analysis-confirmation"><div><i>✓</i><span><b>Official property matched privately</b><small>{projectAddress || "NSW location hidden"} · {analysis.council} Council</small></span></div><dl><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>Planning instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Official parcel area</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²</dd></div><div><dt>Data status</dt><dd>Live NSW layers</dd></div></dl></div>}
             <div className="analysis-support"><a href="https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address" target="_blank" rel="noreferrer">Verify in NSW Spatial Viewer ↗</a><label><span className="file-control"><input type="file" accept=".pdf,image/*" onChange={(event) => setReportName(event.target.files?.[0]?.name ?? "")} /><b>{reportName || "Attach property report"}</b></span></label></div>
             <button className="stage-next" disabled={!analysis} onClick={() => setSetupStep(2)}>Explore my development potential <span>→</span></button>
           </div>
           <div className="parcel-lab">
-            <div className="parcel-map"><div className="map-grid" /><div className="road-label">{analysis ? `OFFICIAL PROPERTY · ${analysis.controls.zone}` : "AWAITING ADDRESS"}</div><div className={`parcel-shape ${analysis ? "live" : ""}`} style={{ clipPath: boundaryPolygon }}><span>{analysis ? "NSW CADASTRAL PARCEL" : "PROPERTY ENVELOPE"}</span><b>{analysis?.area?.toLocaleString() ?? landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{analysis?.matchedAddress || projectAddress || "Your property"}</span></div></div>
+            <div className="parcel-map"><div className="map-grid" /><div className="road-label">{analysis ? `OFFICIAL PROPERTY · ${analysis.controls.zone}` : "AWAITING ADDRESS"}</div><div className={`parcel-shape ${analysis ? "live" : ""}`} style={{ clipPath: boundaryPolygon }}><span>{analysis ? "NSW CADASTRAL PARCEL" : "PROPERTY ENVELOPE"}</span><b>{analysis?.area?.toLocaleString() ?? landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{projectAddress || "Private NSW property"}</span></div></div>
             {analysis ? <div className="control-dashboard">
               <header><div><span>Automatic planning snapshot</span><strong>What the mapped controls say</strong></div><b>LIVE</b></header>
               <div className="guidance-card"><span>Plain-English feasibility read</span><strong>{analysis.guidance.verdict}</strong><p>{analysis.guidance.explanation}</p><small><b>Likely route:</b> {analysis.guidance.pathway} · <b>Reference:</b> {analysis.guidance.code}</small></div>

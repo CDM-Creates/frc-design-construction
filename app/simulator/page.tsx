@@ -98,6 +98,12 @@ const officialSources = [
   ["In-force Codes SEPP", "The current legal text for exempt and complying development", "https://legislation.nsw.gov.au/view/whole/html/inforce/current/epi-2008-0572"],
 ];
 
+const privateLocation = (result: SiteAnalysis, fallbackSuburb = "", fallbackPostcode = "") => {
+  const suburb = result.addressDetails?.suburb || fallbackSuburb;
+  const postcode = result.addressDetails?.postcode || fallbackPostcode;
+  return [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ") || "Private NSW property";
+};
+
 export default function ProjectSimulator() {
   const entitlement = getSimulatorEntitlement();
   const [form, setForm] = useState<SimulatorForm>(initialForm);
@@ -108,18 +114,27 @@ export default function ProjectSimulator() {
   const [addressError, setAddressError] = useState("");
   const [error, setError] = useState("");
   const lastResolvedAddress = useRef("");
+  const privateStreetAddress = useRef("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("source") !== "intro") return;
+    let privateBrief: Record<string, string> = {};
+    try {
+      const stored = sessionStorage.getItem("frc-private-site-brief");
+      if (stored) privateBrief = JSON.parse(stored) as Record<string, string>;
+      sessionStorage.removeItem("frc-private-site-brief");
+    } catch {
+      privateBrief = {};
+    }
     const positiveNumber = (key: string, fallback: number) => {
-      const value = Number(params.get(key));
+      const value = Number(privateBrief[key] ?? params.get(key));
       return Number.isFinite(value) && value > 0 ? value : fallback;
     };
-    const requestedGoal = params.get("projectGoal");
-    const introStreet = params.get("streetAddress") ?? "";
-    const introSuburb = params.get("suburb") ?? "";
-    const introPostcode = (params.get("postcode") ?? "").replace(/\D/g, "").slice(0, 4);
+    const requestedGoal = privateBrief.projectGoal ?? params.get("projectGoal");
+    const introStreet = privateBrief.streetAddress ?? "";
+    const introSuburb = privateBrief.suburb ?? "";
+    const introPostcode = (privateBrief.postcode ?? "").replace(/\D/g, "").slice(0, 4);
     const fullIntroAddress = [introStreet, introSuburb, introPostcode && `NSW ${introPostcode}`].filter(Boolean).join(", ");
     const hydratePrefill = window.setTimeout(() => {
       setForm((current) => ({
@@ -160,10 +175,12 @@ export default function ProjectSimulator() {
         });
         const result = await response.json() as SiteAnalysis & { error?: string };
         if (!response.ok) throw new Error(result.error ?? "No matching NSW property was found.");
+        const safeLocation = privateLocation(result);
+        privateStreetAddress.current = result.matchedAddress;
         lastResolvedAddress.current = result.matchedAddress.toUpperCase();
         setForm((current) => ({
           ...current,
-          streetAddress: result.matchedAddress,
+          streetAddress: safeLocation,
           suburb: result.addressDetails?.suburb ?? current.suburb,
           postcode: result.addressDetails?.postcode ?? current.postcode,
           lotDp: result.lotDp ?? current.lotDp,
@@ -171,7 +188,7 @@ export default function ProjectSimulator() {
           frontage: result.siteDimensions?.frontage ?? current.frontage,
           depth: result.siteDimensions?.depth ?? current.depth,
         }));
-        setMatchedProperty(result);
+        setMatchedProperty({ ...result, matchedAddress: safeLocation });
         setAnalysis(null);
         setError("");
       } catch (caught) {
@@ -193,6 +210,7 @@ export default function ProjectSimulator() {
     setForm((current) => ({ ...current, [key]: value }));
     setAnalysis(null);
     if (key === "streetAddress") {
+      privateStreetAddress.current = "";
       lastResolvedAddress.current = "";
       setMatchedProperty(null);
       setAddressError("");
@@ -233,12 +251,16 @@ export default function ProjectSimulator() {
       const response = await fetch("/api/site-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, address: form.streetAddress }),
+        body: JSON.stringify({ ...form, address: privateStreetAddress.current || form.streetAddress }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "The property check could not be completed.");
-      setAnalysis(result);
-      setMatchedProperty(result);
+      const safeLocation = privateLocation(result, form.suburb, form.postcode);
+      const safeResult = { ...result, matchedAddress: safeLocation };
+      privateStreetAddress.current = result.matchedAddress;
+      setForm((current) => ({ ...current, streetAddress: safeLocation }));
+      setAnalysis(safeResult);
+      setMatchedProperty(safeResult);
       window.setTimeout(() => document.querySelector("#simulation-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The property check could not be completed.");
@@ -247,7 +269,7 @@ export default function ProjectSimulator() {
     }
   };
 
-  const address = matchedProperty?.matchedAddress || form.streetAddress;
+  const address = form.suburb && form.postcode ? `${form.suburb}, NSW ${form.postcode}` : matchedProperty?.matchedAddress || "Private NSW property";
   const brief = form.description.trim() || `A ${form.storeys}-storey ${projectNames[form.projectGoal]} with ${form.bedrooms} bedrooms, ${form.bathrooms} bathrooms and ${form.parking} car spaces${form.projectGoal === "dual" ? " in each home" : ""}. Priorities include ${form.mustHaves.toLowerCase()}.`;
 
   return (
@@ -278,13 +300,13 @@ export default function ProjectSimulator() {
 
           <fieldset>
             <legend><i>01</i><span>Property identity<small>One address fills the mapped site facts</small></span></legend>
-            <label className="span-2 address-entry"><span>Full NSW property address <small>Type street, suburb and optional postcode</small></span><input required autoComplete="street-address" value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="88 Hyatts Road, Oakhurst NSW 2761" /><small className="address-entry-help">Pause after typing—the official parcel will be matched automatically.</small></label>
+            <label className="span-2 address-entry"><span>Full NSW property address <small>Private lookup only</small></span><input required autoComplete="street-address" value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="Enter street, suburb and NSW postcode" /><small className="address-entry-help">Pause after typing—the official parcel will be matched automatically, then the street address is replaced by a suburb-only label.</small></label>
             {addressLoading && <div className="address-autofill loading span-2"><i className="analysis-spinner" /><div><strong>Finding the official NSW parcel…</strong><span>Address, council, lot, mapped area and approximate dimensions are being checked.</span></div></div>}
             {!addressLoading && matchedProperty && <div className="address-autofill matched span-2"><i>✓</i><div><strong>Property matched and fields filled</strong><span>{matchedProperty.council} Council · {matchedProperty.controls.zone} {matchedProperty.controls.zoneName} · {matchedProperty.area?.toLocaleString() ?? "Area unavailable"} m²</span><small>Mapped dimensions are indicative and remain subject to survey.</small></div></div>}
             {!addressLoading && addressError && <div className="address-autofill failed span-2"><i>!</i><div><strong>We need a more complete address</strong><span>{addressError}</span></div></div>}
-            <label><span>Suburb <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required value={form.suburb} onChange={(event) => update("suburb", event.target.value)} placeholder="Oakhurst" /></label>
-            <label><span>Postcode <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={form.postcode} onChange={(event) => update("postcode", event.target.value.replace(/\D/g, ""))} placeholder="2761" /></label>
-            <label className="span-2"><span>Lot / DP <small>{form.lotDp ? "Auto-filled" : "Optional / unavailable"}</small></span><input value={form.lotDp} onChange={(event) => update("lotDp", event.target.value)} placeholder="Lot 1109 / DP263160" /></label>
+            <label><span>Suburb <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required value={form.suburb} onChange={(event) => update("suburb", event.target.value)} placeholder="NSW suburb" /></label>
+            <label><span>Postcode <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={form.postcode} onChange={(event) => update("postcode", event.target.value.replace(/\D/g, ""))} placeholder="Postcode" /></label>
+            <label className="span-2"><span>Lot / DP <small>{form.lotDp ? "Auto-filled" : "Optional / unavailable"}</small></span><input value={form.lotDp} onChange={(event) => update("lotDp", event.target.value)} placeholder="Filled from the mapped parcel when available" /></label>
           </fieldset>
 
           <fieldset>
@@ -389,7 +411,7 @@ export default function ProjectSimulator() {
         </div>
 
         <div className="truth-grid">
-          <article><header><i>01</i><span>Confirmed by NSW mapping</span></header><dl><div><dt>Address</dt><dd>{analysis.matchedAddress}</dd></div><div><dt>Council</dt><dd>{analysis.council}</dd></div><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>LEP / instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Mapped height</dt><dd>{analysis.controls.maxHeight ?? "No numeric value returned"}</dd></div><div><dt>Mapped FSR</dt><dd>{analysis.controls.fsr ?? "No numeric value returned"}</dd></div><div><dt>Minimum lot-size map</dt><dd>{analysis.controls.minimumLotSize ?? "No numeric value returned"}</dd></div><div><dt>Heritage layer</dt><dd>{analysis.controls.heritage ?? "No principal layer hit"}</dd></div></dl></article>
+          <article><header><i>01</i><span>Confirmed by NSW mapping</span></header><dl><div><dt>Approximate location</dt><dd>{analysis.matchedAddress}</dd></div><div><dt>Privacy</dt><dd>Street address hidden from this overview</dd></div><div><dt>Council</dt><dd>{analysis.council}</dd></div><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>LEP / instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Mapped height</dt><dd>{analysis.controls.maxHeight ?? "No numeric value returned"}</dd></div><div><dt>Mapped FSR</dt><dd>{analysis.controls.fsr ?? "No numeric value returned"}</dd></div><div><dt>Minimum lot-size map</dt><dd>{analysis.controls.minimumLotSize ?? "No numeric value returned"}</dd></div><div><dt>Heritage layer</dt><dd>{analysis.controls.heritage ?? "No principal layer hit"}</dd></div></dl></article>
           <article><header><i>02</i><span>Supplied by the client</span></header><dl><div><dt>Plot area</dt><dd>{form.knownLandArea.toLocaleString()} m²</dd></div><div><dt>Frontage / depth</dt><dd>{form.frontage}m / {form.depth}m approx.</dd></div><div><dt>Official parcel cross-check</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²{officialDifference !== null ? ` (${officialDifference > 0 ? "+" : ""}${officialDifference}% difference)` : ""}</dd></div><div><dt>Lot / DP</dt><dd>{form.lotDp || "Not supplied"}</dd></div><div><dt>Slope</dt><dd>{form.slope}</dd></div><div><dt>Existing building</dt><dd>{form.existingDwelling ? "Yes" : "No / not advised"}</dd></div><div><dt>Estimated cost</dt><dd>${form.estimatedCost.toLocaleString()}</dd></div><div><dt>Excavation intent</dt><dd>{form.proposedExcavationDepth}m deep · {form.excavationBoundaryDistance}m to boundary</dd></div></dl></article>
           <article className="verify-card"><header><i>03</i><span>Must be verified before design freeze</span></header><ul><li>Deposited plan, title, easements and restrictions</li><li>Detail survey, contours and actual boundary dimensions</li><li>Council DCP setbacks, landscaped area and local character controls</li><li>Flood, bushfire, biodiversity, contamination and servicing constraints</li><li>Geotechnical conditions, excavation and retaining strategy</li><li>BASIX, NCC, stormwater, access and consultant requirements</li></ul></article>
         </div>
