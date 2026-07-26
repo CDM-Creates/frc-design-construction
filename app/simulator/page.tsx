@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { futureSubscriptionFeatures, getSimulatorEntitlement } from "./access";
 import { buildProjectConcept, type PlanningSnapshot, type ProjectType } from "./project-engine";
+import { calculateRegulatoryScreen } from "./regulatory-engine";
 
 type SiteAnalysis = PlanningSnapshot & {
   matchedAddress: string;
@@ -40,6 +41,10 @@ type SimulatorForm = {
   parking: number;
   roofForm: "flat" | "pitched" | "gable";
   materialDirection: "warm" | "light" | "brick" | "dark";
+  estimatedCost: number;
+  proposedExcavationDepth: number;
+  excavationBoundaryDistance: number;
+  poolCapacity: number;
   budget: string;
   timing: string;
   mustHaves: string;
@@ -65,6 +70,10 @@ const initialForm: SimulatorForm = {
   parking: 2,
   roofForm: "flat",
   materialDirection: "warm",
+  estimatedCost: 900000,
+  proposedExcavationDepth: 0.6,
+  excavationBoundaryDistance: 1.6,
+  poolCapacity: 0,
   budget: "$900k–$1.2m",
   timing: "Within 12–18 months",
   mustHaves: "North-facing living, flexible study, covered outdoor room",
@@ -125,6 +134,24 @@ export default function ProjectSimulator() {
   };
 
   const concept = useMemo(() => buildProjectConcept(form, analysis), [analysis, form]);
+  const regulatory = useMemo(() => analysis ? calculateRegulatoryScreen({
+    projectGoal: form.projectGoal,
+    lotArea: concept.siteAreaUsed,
+    frontage: form.frontage,
+    depth: form.depth,
+    lotType: form.lotType,
+    storeys: form.storeys,
+    designHeight: concept.designHeight,
+    requestedGfa: concept.requestedGfa,
+    footprint: concept.footprint,
+    estimatedCost: form.estimatedCost,
+    proposedExcavationDepth: form.proposedExcavationDepth,
+    excavationBoundaryDistance: form.excavationBoundaryDistance,
+    poolCapacity: form.poolCapacity,
+    zone: analysis.controls.zone,
+    council: analysis.council,
+    mappedGfaCap: concept.mappedGfaCap,
+  }) : null, [analysis, concept, form]);
   const officialDifference = analysis?.area
     ? Math.round(((analysis.area - form.knownLandArea) / form.knownLandArea) * 100)
     : null;
@@ -215,6 +242,15 @@ export default function ProjectSimulator() {
             <label className="span-2"><span>Describe the project in your own words</span><textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="We want a calm family home that opens to the northern garden, keeps one bedroom accessible and has room for our parents to stay…" /></label>
           </fieldset>
 
+          <fieldset>
+            <legend><i>04</i><span>Cost + site works<small>Used for BASIX and excavation screening</small></span></legend>
+            <label><span>Estimated construction cost</span><div className="sim-unit prefix"><b>$</b><input required type="number" min="0" step="1000" value={form.estimatedCost} onChange={(event) => update("estimatedCost", Number(event.target.value))} /></div></label>
+            <label><span>Pool / spa capacity <small>optional</small></span><div className="sim-unit"><input type="number" min="0" step="1000" value={form.poolCapacity} onChange={(event) => update("poolCapacity", Number(event.target.value))} /><b>L</b></div></label>
+            <label><span>Deepest proposed cut</span><div className="sim-unit"><input required type="number" min="0" step=".1" value={form.proposedExcavationDepth} onChange={(event) => update("proposedExcavationDepth", Number(event.target.value))} /><b>m</b></div></label>
+            <label><span>Cut to nearest boundary</span><div className="sim-unit"><input required type="number" min="0" step=".1" value={form.excavationBoundaryDistance} onChange={(event) => update("excavationBoundaryDistance", Number(event.target.value))} /><b>m</b></div></label>
+            <p className="input-help span-2">If the excavation position is not known, enter the closest plausible distance. The report keeps the result provisional until surveyed levels, water, services and geotechnical conditions are checked.</p>
+          </fieldset>
+
           {error && <div className="sim-error"><b>We couldn’t complete the live property check.</b><span>{error}</span></div>}
           <button className="run-simulation" disabled={loading || form.postcode.length !== 4} type="submit">{loading ? "Checking NSW planning layers…" : "Build my project overview"}<span>{loading ? "···" : "→"}</span></button>
           <p className="sim-disclaimer">This is an early feasibility screen, not development consent, a planning certificate, legal advice or a construction-ready design.</p>
@@ -283,18 +319,39 @@ export default function ProjectSimulator() {
 
         <div className="truth-grid">
           <article><header><i>01</i><span>Confirmed by NSW mapping</span></header><dl><div><dt>Address</dt><dd>{analysis.matchedAddress}</dd></div><div><dt>Council</dt><dd>{analysis.council}</dd></div><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>LEP / instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Mapped height</dt><dd>{analysis.controls.maxHeight ?? "No numeric value returned"}</dd></div><div><dt>Mapped FSR</dt><dd>{analysis.controls.fsr ?? "No numeric value returned"}</dd></div><div><dt>Minimum lot-size map</dt><dd>{analysis.controls.minimumLotSize ?? "No numeric value returned"}</dd></div><div><dt>Heritage layer</dt><dd>{analysis.controls.heritage ?? "No principal layer hit"}</dd></div></dl></article>
-          <article><header><i>02</i><span>Supplied by the client</span></header><dl><div><dt>Plot area</dt><dd>{form.knownLandArea.toLocaleString()} m²</dd></div><div><dt>Frontage / depth</dt><dd>{form.frontage}m / {form.depth}m approx.</dd></div><div><dt>Official parcel cross-check</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²{officialDifference !== null ? ` (${officialDifference > 0 ? "+" : ""}${officialDifference}% difference)` : ""}</dd></div><div><dt>Lot / DP</dt><dd>{form.lotDp || "Not supplied"}</dd></div><div><dt>Slope</dt><dd>{form.slope}</dd></div><div><dt>Existing building</dt><dd>{form.existingDwelling ? "Yes" : "No / not advised"}</dd></div></dl></article>
+          <article><header><i>02</i><span>Supplied by the client</span></header><dl><div><dt>Plot area</dt><dd>{form.knownLandArea.toLocaleString()} m²</dd></div><div><dt>Frontage / depth</dt><dd>{form.frontage}m / {form.depth}m approx.</dd></div><div><dt>Official parcel cross-check</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²{officialDifference !== null ? ` (${officialDifference > 0 ? "+" : ""}${officialDifference}% difference)` : ""}</dd></div><div><dt>Lot / DP</dt><dd>{form.lotDp || "Not supplied"}</dd></div><div><dt>Slope</dt><dd>{form.slope}</dd></div><div><dt>Existing building</dt><dd>{form.existingDwelling ? "Yes" : "No / not advised"}</dd></div><div><dt>Estimated cost</dt><dd>${form.estimatedCost.toLocaleString()}</dd></div><div><dt>Excavation intent</dt><dd>{form.proposedExcavationDepth}m deep · {form.excavationBoundaryDistance}m to boundary</dd></div></dl></article>
           <article className="verify-card"><header><i>03</i><span>Must be verified before design freeze</span></header><ul><li>Deposited plan, title, easements and restrictions</li><li>Detail survey, contours and actual boundary dimensions</li><li>Council DCP setbacks, landscaped area and local character controls</li><li>Flood, bushfire, biodiversity, contamination and servicing constraints</li><li>Geotechnical conditions, excavation and retaining strategy</li><li>BASIX, NCC, stormwater, access and consultant requirements</li></ul></article>
         </div>
 
+        {regulatory && <div className="control-intelligence">
+          <header>
+            <div><span>03 / Current-rule intelligence</span><h2>Useful numbers.<br /><em>Visible limits.</em></h2></div>
+            <div className={`pathway-signal ${regulatory.routeStatus}`}>
+              <small>{regulatory.route}</small>
+              <strong>{regulatory.routeStatus === "screened" ? "First pathway screen passed" : "Use DA / council controls as the working path"}</strong>
+              <p>{regulatory.routeReason}</p>
+            </div>
+          </header>
+          <div className="regulatory-grid">{regulatory.controls.map((control, index) => <article className={control.status} key={control.key}>
+            <div className="regulatory-number">{String(index + 1).padStart(2, "0")}</div>
+            <span>{control.eyebrow}</span>
+            <h3>{control.title}</h3>
+            <strong>{control.value}</strong>
+            <p>{control.summary}</p>
+            <ul>{control.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
+            <a href={control.sourceHref} target="_blank" rel="noreferrer">{control.sourceLabel} <i>↗</i></a>
+          </article>)}</div>
+          <a className="council-source" href={regulatory.councilSource.href} target="_blank" rel="noreferrer"><span><small>Property-specific council source</small><strong>{regulatory.councilSource.label}</strong><p>{regulatory.councilSource.note}</p></span><i>↗</i></a>
+        </div>}
+
         <div className="law-check">
-          <header><div><span>03 / Restriction-fit report</span><h2>Proposal versus<br />mapped controls.</h2></div><p>The generated house is tested only against controls actually returned for the matched property. Unknown setbacks and site constraints remain visibly unresolved instead of being replaced with invented values.</p></header>
+          <header><div><span>04 / Restriction-fit report</span><h2>Proposal versus<br />mapped controls.</h2></div><p>Mapped controls stay separate from the current-code screening benchmarks above. Every unresolved title, survey, hazard and council item remains visible instead of being replaced with an invented entitlement.</p></header>
           <div className="law-checks">{concept.complianceChecks.map((check) => <article className={check.status} key={check.key}><i className={check.status}>{check.status === "pass" ? "✓" : check.status === "fail" ? "×" : "!"}</i><span>{check.label}</span><strong>{check.mappedRule}</strong><small>Proposal: {check.proposed}</small><p>{check.explanation}</p><b>{check.source}</b></article>)}</div>
           <div className="law-note"><b>Important distinction</b><p>“Permitted” does not mean “approved”. A project must first be permissible in the zone, then satisfy either every complying-development standard for a CDC or the merit assessment requirements for a DA. The current in-force legislation and property-specific constraints prevail over this simulation.</p></div>
         </div>
 
         <div className="success-plan">
-          <header><span>04 / Plan of success</span><h2>The path from this<br />screen to construction.</h2></header>
+          <header><span>05 / Plan of success</span><h2>The path from this<br />screen to construction.</h2></header>
           <div className="success-steps">
             {[
               ["01", "Lock the ground truth", "Order title documents and a detail survey. Confirm the boundary, levels, trees, services, easements and restrictions.", "Before design"],

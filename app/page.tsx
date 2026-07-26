@@ -48,7 +48,9 @@ type SiteAnalysis = {
 
 export default function Home() {
   const storyRef = useRef<HTMLElement>(null);
+  const wheelRef = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
+  const [wheelProgress, setWheelProgress] = useState(0);
   const [projectType, setProjectType] = useState<"new" | "dual" | "reno">("dual");
   const [scope, setScope] = useState<"concept" | "approval" | "full">("full");
   const [buildCost, setBuildCost] = useState(1400);
@@ -84,10 +86,16 @@ export default function Home() {
 
   useEffect(() => {
     const update = () => {
-      if (!storyRef.current) return;
-      const rect = storyRef.current.getBoundingClientRect();
-      const distance = storyRef.current.offsetHeight - window.innerHeight;
-      setProgress(Math.max(0, Math.min(1, -rect.top / distance)));
+      if (storyRef.current) {
+        const rect = storyRef.current.getBoundingClientRect();
+        const distance = storyRef.current.offsetHeight - window.innerHeight;
+        setProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
+      }
+      if (wheelRef.current) {
+        const rect = wheelRef.current.getBoundingClientRect();
+        const distance = wheelRef.current.offsetHeight - window.innerHeight;
+        setWheelProgress(Math.max(0, Math.min(1, -rect.top / Math.max(distance, 1))));
+      }
     };
     update();
     window.addEventListener("scroll", update, { passive: true });
@@ -144,6 +152,7 @@ export default function Home() {
 
   const p = Math.round(progress * 100);
   const realReveal = Math.max(0, Math.min(1, (progress - .27) * 1.8));
+  const storyTone = Math.round(233 - Math.min(1, progress * 1.18) * 218);
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
   const galleryFor = (index: number) => projects[index].gallery;
   const labelsFor = (index: number) => projects[index].labels;
@@ -227,11 +236,48 @@ export default function Home() {
         </div>
       </nav>
 
-      <section className="story" id="top" ref={storyRef}>
+      <header className="welcome-hero" id="top">
+        <img src="/projects/crown-line/realistic.png" alt="A warm FRC-designed family home at dusk" />
+        <div className="welcome-wash" />
+        <div className="welcome-copy">
+          <span>FRC Design + Construction · Architecture made personal</span>
+          <h1>Bring us the land.<br />We’ll help you see<br /><em>the life inside it.</em></h1>
+          <p>Thoughtful homes, clear approvals and a path to construction that makes sense from the first conversation.</p>
+          <div><a href="/simulator">Explore what your land can hold <i>↗</i></a><a href="#project-wheel">Meet the work <i>↓</i></a></div>
+        </div>
+        <div className="welcome-proof"><span>Homes shaped around real families</span><b>NSW + Australia</b><small>Feasibility · design · approvals · delivery</small></div>
+        <a className="welcome-scroll" href="#project-wheel"><span>One small scroll</span><i /></a>
+      </header>
+
+      <section className="project-wheel-section" id="project-wheel" ref={wheelRef} aria-labelledby="project-wheel-title">
+        <div className="project-wheel-sticky">
+          <header className="wheel-heading"><span>Completed + resolved work</span><h2 id="project-wheel-title">A family of<br /><em>places.</em></h2><p>Turn the wheel. Open any project. See how each brief became its own architecture.</p></header>
+          <div className="project-wheel" style={{ "--wheel-turn": `${wheelProgress * 52}deg` } as React.CSSProperties}>
+            <div className="wheel-core"><small>FRC project archive</small><strong>{String(projects.length).padStart(2, "0")}</strong><span>selected projects</span></div>
+            {projects.map((project, index) => {
+              const angle = index * (360 / projects.length) + wheelProgress * 52;
+              return <button
+                type="button"
+                className="wheel-project"
+                key={`wheel-${project.slug}`}
+                style={{ "--wheel-angle": `${angle}deg`, "--wheel-counter": `${-angle}deg` } as React.CSSProperties}
+                onClick={() => { setActiveProject(index); setActiveSlide(0); }}
+                aria-label={`Open ${project.name} project gallery`}
+              >
+                <img src={project.image} alt="" />
+                <span><i>{String(index + 1).padStart(2, "0")}</i><b>{project.name}</b><small>{project.type}</small></span>
+              </button>;
+            })}
+          </div>
+          <div className="wheel-progress"><span>Scroll to turn the archive</span><i><b style={{ transform: `scaleX(${wheelProgress})` }} /></i><strong>{String(Math.max(1, Math.ceil(wheelProgress * projects.length))).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</strong></div>
+        </div>
+      </section>
+
+      <section className="story" id="story" ref={storyRef} style={{ backgroundColor: `rgb(${storyTone}, ${storyTone + 1}, ${storyTone - 3})` }}>
         <div className="story-sticky">
           <div className="grid-field" style={{ opacity: Math.max(.08, 1 - progress * 1.25) }} />
-          <div className="chapter-count">{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</div>
-          <div className="project-label"><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
+          <div className="chapter-count" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</div>
+          <div className="project-label" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
           <div className="model-frame" style={{ transform: `translate3d(0, ${Math.max(0, progress - .76) * -70}px, 0) scale(${.84 + Math.min(progress, .6) * .27})`, borderRadius: `${Math.max(0, 20 - progress * 30)}px` }}>
             <img className="model-image plan-image" src="/projects/betula/drawing-floor-fixed.png" alt="Three-storey architectural model of the Betula Avenue dual occupancy with its right-hand floor slab resolved" />
             <div className="drawing-overlay" style={{ opacity: Math.max(0, 1 - progress * 1.8) }}><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
@@ -259,7 +305,7 @@ export default function Home() {
             <div className="story-site-readout"><span>Known site</span><strong>{frontage}m × {depth}m</strong><small>{landArea.toLocaleString()} m² supplied by you · exact restrictions checked next</small></div>
             <button type="submit">Inspect what fits <span>→</span></button>
           </form>
-          <div className="scroll-meter"><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${progress})` }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</span></div>
+          <div className="scroll-meter" style={{ color: p > 42 ? "#f4f2ea" : "#17221d" }}><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${progress})`, background: p > 42 ? "#f4f2ea" : "#17221d" }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</span></div>
         </div>
       </section>
 

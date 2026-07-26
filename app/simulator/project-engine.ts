@@ -9,6 +9,11 @@ export type ProjectEngineInput = {
   bedrooms: number;
   bathrooms: number;
   parking: number;
+  existingDwelling: boolean;
+  estimatedCost: number;
+  proposedExcavationDepth: number;
+  excavationBoundaryDistance: number;
+  poolCapacity: number;
   mustHaves: string;
   description: string;
 };

@@ -1,3 +1,5 @@
+import { calculateRegulatoryScreen } from "../../simulator/regulatory-engine";
+
 type ArcFeature = { attributes?: Record<string, unknown>; geometry?: { rings?: number[][][] } };
 
 const ADDRESS_SERVICE = "https://mapsq.six.nsw.gov.au/services/public/Address_Location";
@@ -83,9 +85,13 @@ type ProjectInputs = {
   lotType?: "standard" | "corner" | "battleaxe";
   slope?: "flat" | "gentle" | "steep";
   existingDwelling?: boolean;
+  estimatedCost?: number;
+  proposedExcavationDepth?: number;
+  excavationBoundaryDistance?: number;
+  poolCapacity?: number;
 };
 
-function projectGuidance(zone: string, heritage: boolean, inputs: ProjectInputs, mappedHeight: number | null, mappedFsr: number | null) {
+function projectGuidance(zone: string, heritage: boolean, inputs: ProjectInputs, mappedHeight: number | null, mappedFsr: number | null, council: string, officialArea: number | null) {
   const codeZone = zone.toUpperCase();
   const housingCode = ["R1", "R2", "R3", "R4", "RU5"].includes(codeZone);
   const ruralHousingCode = ["R5", "RU1", "RU2", "RU3", "RU4", "RU6"].includes(codeZone);
@@ -129,15 +135,36 @@ function projectGuidance(zone: string, heritage: boolean, inputs: ProjectInputs,
     explanation = "The approval route depends on the existing building, proposed envelope, mapped constraints and whether every complying-development standard can be met.";
   }
 
-  const maxFloorArea = mappedFsr && area ? Math.round(area * mappedFsr) : null;
+  const floorAreaSite = officialArea || area;
+  const maxFloorArea = mappedFsr && floorAreaSite ? Math.round(floorAreaSite * mappedFsr) : null;
+  const designHeight = Math.max(1, Number(inputs.storeys || 2)) * 3.05 + 1.1;
+  const regulatory = calculateRegulatoryScreen({
+    projectGoal: goal,
+    lotArea: officialArea || area,
+    frontage,
+    depth: Number(inputs.depth || 0),
+    lotType: inputs.lotType ?? "standard",
+    storeys: Number(inputs.storeys || 2),
+    designHeight,
+    requestedGfa: 0,
+    footprint: 0,
+    estimatedCost: Number(inputs.estimatedCost || 0),
+    proposedExcavationDepth: Number(inputs.proposedExcavationDepth ?? 0.6),
+    excavationBoundaryDistance: Number(inputs.excavationBoundaryDistance ?? 1.6),
+    poolCapacity: Number(inputs.poolCapacity || 0),
+    zone,
+    council,
+    mappedGfaCap: maxFloorArea,
+  });
+  const [setbacks, floorArea, excavation, basix] = regulatory.controls;
   const checks = [
     { label: "Known site area", value: area ? `${area.toLocaleString()} m² (client entered)` : "Required", tone: area ? "good" : "review" },
     { label: "Known frontage", value: frontage ? `${frontage} m (client entered)` : "Required for envelope test", tone: frontage ? "good" : "review" },
     { label: "Mapped height", value: height ? `${height} m LEP maximum` : "No numeric map hit — confirm the current Code, LEP and DCP", tone: height ? "good" : "review" },
-    { label: "Setbacks + site coverage", value: "Calculate from the current Housing Code tables or council DCP after survey", tone: "review" },
-    { label: "Indicative maximum floor area", value: maxFloorArea ? `${maxFloorArea.toLocaleString()} m² from mapped FSR` : "No numeric FSR mapped — do not invent one", tone: maxFloorArea ? "good" : "review" },
-    { label: "Excavation", value: inputs.slope === "steep" ? "Geotechnical and structural review essential" : "No reliable statewide maximum depth — survey and geotechnical review", tone: "review" },
-    { label: "BASIX", value: "Required for new NSW dwellings; generally required for alterations and additions valued at $50,000 or more", tone: "review" },
+    { label: "Setbacks + site coverage", value: setbacks.value, tone: setbacks.status === "screened" ? "good" : "review" },
+    { label: "Indicative maximum floor area", value: floorArea.value, tone: floorArea.status === "screened" ? "good" : "review" },
+    { label: "Excavation", value: inputs.proposedExcavationDepth === undefined ? "Enter cut depth + boundary distance in the full simulator" : excavation.value, tone: inputs.proposedExcavationDepth === undefined ? "review" : excavation.status === "screened" ? "good" : "review" },
+    { label: "BASIX", value: goal === "renovation" && inputs.estimatedCost === undefined ? "Enter estimated construction cost in the full simulator" : basix.value, tone: goal === "renovation" && inputs.estimatedCost === undefined ? "review" : basix.status === "screened" ? "good" : "review" },
   ];
 
   return {
@@ -230,7 +257,7 @@ export async function POST(request: Request) {
         },
       },
       opportunities: opportunitiesForZone(zoneCode),
-      guidance: projectGuidance(zoneCode, Boolean(heritage), inputs, mappedHeight, mappedFsr),
+      guidance: projectGuidance(zoneCode, Boolean(heritage), inputs, mappedHeight, mappedFsr, String(match.council ?? ""), area || null),
       constraints: [
         { name: "Building height", value: height?.MAX_B_H ? `${height.MAX_B_H} ${height.UNITS ?? "m"}` : "No numeric height mapped", status: height?.MAX_B_H ? "mapped" : "review" },
         { name: "Floor-space ratio", value: fsr?.FSR ? `${fsr.FSR}:1` : "No FSR mapped", status: fsr?.FSR ? "mapped" : "review" },
