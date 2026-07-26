@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const capabilities = [
   ["01", "Feasibility", "Planning controls, site potential and a clear path before you commit."],
@@ -10,21 +10,14 @@ const capabilities = [
 ];
 
 const projects = [
-  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic.png", feature: true, gallery: ["/projects/betula/realistic.png", "/projects/betula/perspectives.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Architectural perspectives", "Ground floor plan", "Upper floor plan"] },
+  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-floor-fixed.png", feature: true, gallery: ["/projects/betula/realistic-floor-fixed.png", "/projects/betula/drawing-floor-fixed.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
   { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
-  { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.jpg" },
-  { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.jpg" },
-  { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.jpg" },
-  { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.jpg" },
-  { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.jpg" },
-  { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.jpg" },
-];
-
-const standardGallery = (slug: string, image: string) => [
-  image,
-  `/projects/gallery/${slug}/01.jpg`,
-  `/projects/gallery/${slug}/02.jpg`,
-  `/projects/gallery/${slug}/03.jpg`,
+  { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.png", gallery: ["/projects/ai/alicante.png", "/projects/gallery/alicante/01.jpg", "/projects/gallery/alicante/02.jpg", "/projects/gallery/alicante/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.png", gallery: ["/projects/ai/varian.png", "/projects/gallery/varian/01.jpg", "/projects/gallery/varian/02.jpg", "/projects/gallery/varian/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.png", gallery: ["/projects/ai/norwest.png", "/projects/gallery/norwest/01.jpg", "/projects/gallery/norwest/02.jpg", "/projects/gallery/norwest/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
+  { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"] },
 ];
 
 const materialSchemes = [
@@ -41,6 +34,15 @@ type SiteAnalysis = {
   controls: { zone: string; zoneName: string; lep: string; maxHeight: string | null; fsr: string | null; minimumLotSize: string | null; heritage: string | null };
   opportunities: string[][];
   constraints: { name: string; value: string; status: string }[];
+  guidance: {
+    verdict: string;
+    pathway: string;
+    explanation: string;
+    code: string;
+    desiredBuild: string;
+    checks: { label: string; value: string; tone: string }[];
+    missing: string[];
+  };
   analysedAt: string;
 };
 
@@ -58,10 +60,19 @@ export default function Home() {
   const [activeProject, setActiveProject] = useState<number | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [setupStep, setSetupStep] = useState(1);
-  const [projectAddress, setProjectAddress] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [suburb, setSuburb] = useState("");
+  const [postcode, setPostcode] = useState("");
   const [lotDp, setLotDp] = useState("");
   const [landArea, setLandArea] = useState(650);
   const [frontage, setFrontage] = useState(15);
+  const [depth, setDepth] = useState(35);
+  const [lotType, setLotType] = useState<"standard" | "corner" | "battleaxe">("standard");
+  const [slope, setSlope] = useState<"flat" | "gentle" | "steep">("gentle");
+  const [existingDwelling, setExistingDwelling] = useState(false);
+  const [storeys, setStoreys] = useState(2);
+  const [bedrooms, setBedrooms] = useState(4);
+  const [parking, setParking] = useState(2);
   const [projectGoal, setProjectGoal] = useState<"home" | "dual" | "renovation">("home");
   const [roadmapPath, setRoadmapPath] = useState<"cdc" | "da">("da");
   const [propertyVerified, setPropertyVerified] = useState(false);
@@ -134,8 +145,8 @@ export default function Home() {
   const p = Math.round(progress * 100);
   const realReveal = Math.max(0, Math.min(1, (progress - .27) * 1.8));
   const formatMoney = (value: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(value);
-  const galleryFor = (index: number) => projects[index].gallery ?? standardGallery(projects[index].slug, projects[index].image);
-  const labelsFor = (index: number) => projects[index].labels ?? ["AI-enhanced perspective", "Architectural perspective", "Floor plan", "Elevations"];
+  const galleryFor = (index: number) => projects[index].gallery;
+  const labelsFor = (index: number) => projects[index].labels;
   const boundaryPolygon = useMemo(() => {
     if (!analysis?.boundary?.length) return "polygon(4% 7%, 92% 0, 100% 86%, 14% 100%, 0 48%)";
     const xs = analysis.boundary.map(([x]) => x);
@@ -144,16 +155,36 @@ export default function Home() {
     return `polygon(${analysis.boundary.map(([x, y]) => `${8 + ((x - minX) / (maxX - minX || 1)) * 84}% ${8 + (1 - (y - minY) / (maxY - minY || 1)) * 84}%`).join(",")})`;
   }, [analysis]);
   const togglePriority = (priority: string) => setPriorities((current) => current.includes(priority) ? current.filter((item) => item !== priority) : [...current, priority]);
+  const inspectSite = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const params = new URLSearchParams({
+      source: "intro",
+      streetAddress,
+      suburb,
+      postcode,
+      knownLandArea: String(landArea),
+      frontage: String(frontage),
+      depth: String(depth),
+      projectGoal,
+      storeys: String(storeys),
+      bedrooms: String(bedrooms),
+      parking: String(parking),
+    });
+    window.location.assign(`/simulator?${params.toString()}`);
+  };
   const analyseProperty = async () => {
     setAnalysisLoading(true);
     setAnalysisError("");
     setAnalysis(null);
     try {
-      const response = await fetch("/api/site-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: projectAddress }) });
+      const response = await fetch("/api/site-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, parking, projectGoal }),
+      });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Property analysis failed.");
       setAnalysis(result);
-      if (result.area) setLandArea(result.area);
       setPropertyVerified(true);
     } catch (error) {
       setPropertyVerified(false);
@@ -162,6 +193,7 @@ export default function Home() {
       setAnalysisLoading(false);
     }
   };
+  const projectAddress = [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
   const roadmap = useMemo(() => {
     const approvalWeeks = roadmapPath === "cdc" ? "6-10 weeks" : "4-8 months";
     const designWeeks = projectGoal === "renovation" ? "8-12 weeks" : projectGoal === "dual" ? "10-16 weeks" : "8-14 weeks";
@@ -184,6 +216,7 @@ export default function Home() {
         <div className="nav-links">
           <button className="work-menu-trigger" aria-expanded={workMenuOpen} aria-controls="work-menu" onClick={() => setWorkMenuOpen((open) => !open)}>Selected work <span>{workMenuOpen ? "−" : "+"}</span></button>
           <a href="#studio">Studio</a>
+          <a href="/simulator">Project simulator</a>
         </div>
         <a className="quote-link" href="#quote">Start a project <span>↗</span></a>
         <div className={`work-menu ${workMenuOpen ? "open" : ""}`} id="work-menu">
@@ -197,21 +230,36 @@ export default function Home() {
       <section className="story" id="top" ref={storyRef}>
         <div className="story-sticky">
           <div className="grid-field" style={{ opacity: Math.max(.08, 1 - progress * 1.25) }} />
-          <div className="chapter-count">01 / 03</div>
+          <div className="chapter-count">{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</div>
           <div className="project-label"><span>Selected project</span><strong>Betula Avenue<br />Residences</strong></div>
           <div className="model-frame" style={{ transform: `translate3d(0, ${Math.max(0, progress - .76) * -70}px, 0) scale(${.84 + Math.min(progress, .6) * .27})`, borderRadius: `${Math.max(0, 20 - progress * 30)}px` }}>
-            <img className="model-image plan-image" src="/projects/betula/drawing.png" alt="Architectural model of the Betula Avenue dual occupancy" />
+            <img className="model-image plan-image" src="/projects/betula/drawing-floor-fixed.png" alt="Three-storey architectural model of the Betula Avenue dual occupancy with its right-hand floor slab resolved" />
             <div className="drawing-overlay" style={{ opacity: Math.max(0, 1 - progress * 1.8) }}><span className="measure measure-a">A.01 / FRONT</span><span className="measure measure-b">3 LEVELS</span><span className="axis axis-x" /><span className="axis axis-y" /></div>
             <div className="reality-wipe" style={{ clipPath: `inset(0 0 0 ${100 - realReveal * 100}%)` }}>
-              <img className="context-image" src="/projects/betula/realistic.png" alt="Photorealistic visualization of the Betula Avenue residence" />
+              <img className="context-image" src="/projects/betula/realistic-floor-fixed.png" alt="Photorealistic visualization of the three-storey Betula Avenue residence" />
             </div>
             <div className="reveal-line" style={{ left: `${realReveal * 100}%`, opacity: realReveal > .02 && realReveal < .98 ? 1 : 0 }}><span>DRAWING / BUILT FORM</span></div>
             <div className="frame-shade" style={{ opacity: Math.max(0, (progress - .66) * 1.8) }} />
           </div>
           <div className={`story-copy copy-one ${p > 8 && p < 35 ? "visible" : ""}`}><span className="eyebrow">01 · Draw the idea</span><h1>Every home starts<br />as a <em>possibility.</em></h1></div>
           <div className={`story-copy copy-two ${p >= 40 && p < 70 ? "visible" : ""}`}><span className="eyebrow">02 · Resolve the detail</span><h2>Line by line,<br />it becomes <em>real.</em></h2></div>
-          <div className={`story-copy copy-three ${p >= 74 ? "visible" : ""}`}><span className="eyebrow">Betula Avenue · Dual occupancy</span><h2>Designed on paper.<br /><em>Ready</em> for life.</h2><a href="#work">Explore the project <span>↓</span></a></div>
-          <div className="scroll-meter"><span>Scroll to make it real</span><i><b style={{ transform: `scaleX(${progress})` }} /></i><span>{String(Math.max(1, Math.ceil(progress * 3))).padStart(2, "0")} / 03</span></div>
+          <div className={`story-copy copy-three ${p >= 74 ? "visible" : ""}`}><span className="eyebrow">03 · Start with your land</span><h2>Your dimensions.<br /><em>Your</em> possibilities.</h2></div>
+          <form className={`story-brief ${p >= 74 ? "visible" : ""}`} onSubmit={inspectSite} aria-label="Start a property feasibility check">
+            <header><span>04 / Quick site brief</span><h3>What could you create here?</h3><p>Enter what you already know. The simulator will carry it forward and check the address against NSW planning layers.</p></header>
+            <div className="story-brief-grid">
+              <label className="wide"><span>Street address</span><input required value={streetAddress} onChange={(event) => setStreetAddress(event.target.value)} placeholder="88 Hyatts Road" /></label>
+              <label><span>Suburb</span><input required value={suburb} onChange={(event) => setSuburb(event.target.value)} placeholder="Oakhurst" /></label>
+              <label><span>Postcode</span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={postcode} onChange={(event) => setPostcode(event.target.value.replace(/\D/g, ""))} placeholder="2761" /></label>
+              <label><span>Plot area</span><div><input required type="number" min="1" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /><b>m²</b></div></label>
+              <label><span>Frontage</span><div><input required type="number" min="1" step=".1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /><b>m</b></div></label>
+              <label><span>Approx. depth</span><div><input required type="number" min="1" step=".1" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /><b>m</b></div></label>
+              <label><span>Project type</span><select value={projectGoal} onChange={(event) => setProjectGoal(event.target.value as typeof projectGoal)}><option value="home">New home</option><option value="dual">Dual occupancy</option><option value="renovation">Renovate + extend</option></select></label>
+              <label><span>Floors wanted</span><input type="number" min="1" max="6" value={storeys} onChange={(event) => setStoreys(Number(event.target.value))} /></label>
+            </div>
+            <div className="story-site-readout"><span>Known site</span><strong>{frontage}m × {depth}m</strong><small>{landArea.toLocaleString()} m² supplied by you · exact restrictions checked next</small></div>
+            <button type="submit">Inspect what fits <span>→</span></button>
+          </form>
+          <div className="scroll-meter"><span>{p >= 74 ? "Complete the quick brief" : "Scroll to make it real"}</span><i><b style={{ transform: `scaleX(${progress})` }} /></i><span>{String(Math.max(1, Math.min(4, Math.ceil(progress * 4)))).padStart(2, "0")} / 04</span></div>
         </div>
       </section>
 
@@ -223,8 +271,8 @@ export default function Home() {
           <dl><div><dt>Location</dt><dd>Betula Avenue</dd></div><div><dt>Typology</dt><dd>Detached dual occupancy</dd></div><div><dt>Scope</dt><dd>Architecture + documentation</dd></div><div><dt>Form</dt><dd>Three storeys + garages</dd></div></dl>
         </div>
         <div className="resolved-spread">
-          <div className="resolved-image drawing"><img src="/projects/betula/drawing.png" alt="Betula Avenue architectural model" /><span>01 / Architectural model</span></div>
-          <div className="resolved-image reality"><img src="/projects/betula/realistic.png" alt="Photoreal Betula Avenue exterior" /><span>02 / Resolved material study</span></div>
+          <div className="resolved-image drawing"><img src="/projects/betula/drawing-floor-fixed.png" alt="Three-storey Betula Avenue architectural model with a resolved right-hand floor slab" /><span>01 / Architectural model</span></div>
+          <div className="resolved-image reality"><img src="/projects/betula/realistic-floor-fixed.png" alt="Photoreal three-storey Betula Avenue exterior" /><span>02 / Resolved material study</span></div>
           <div className="resolved-note"><small>Drawing → reality</small><strong>The geometry stays.<br />The experience arrives.</strong><p>Exact massing, openings and proportions—resolved through natural light, tactile materials and landscape.</p></div>
         </div>
       </section>
@@ -319,8 +367,13 @@ export default function Home() {
             <span className="stage-number">01 / Establish the ground truth</span>
             <h3>Start with the land,<br />not assumptions.</h3>
             <p>Enter one complete NSW address. FRC Site Intelligence will resolve the official property record and interrogate the live statewide planning layers automatically.</p>
-            <label><span>NSW property address</span><input value={projectAddress} onChange={(event) => { setProjectAddress(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="e.g. 31 Crown Line Drive, Rothbury NSW 2320" /></label>
-            <button className="analyse-property" disabled={!projectAddress || analysisLoading} onClick={analyseProperty}>{analysisLoading ? <><i className="analysis-spinner" />Reading NSW planning layers…</> : <>Analyse what I can build <span>→</span></>}</button>
+            <div className="input-grid"><label><span>Street address</span><input value={streetAddress} onChange={(event) => { setStreetAddress(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="31 Crown Line Drive" /></label><label><span>Suburb</span><input value={suburb} onChange={(event) => { setSuburb(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="Rothbury" /></label><label><span>Postcode</span><input value={postcode} maxLength={4} onChange={(event) => { setPostcode(event.target.value.replace(/\\D/g, "")); setAnalysis(null); setPropertyVerified(false); }} placeholder="2320" /></label></div>
+            <div className="input-grid three"><label><span>Plot area</span><input type="number" min="1" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /></label><label><span>Frontage (m)</span><input type="number" min="1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /></label><label><span>Approx. depth (m)</span><input type="number" min="1" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label></div>
+            <div className="input-grid three"><label><span>Lot / DP <small>optional</small></span><input value={lotDp} onChange={(event) => setLotDp(event.target.value)} placeholder="Lot 12 / DP 123456" /></label><label><span>Site slope</span><select value={slope} onChange={(event) => setSlope(event.target.value as typeof slope)}><option value="flat">Flat</option><option value="gentle">Gentle</option><option value="steep">Steep</option></select></label><label><span>Lot type</span><select value={lotType} onChange={(event) => setLotType(event.target.value as typeof lotType)}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label></div>
+            <div className="build-choice">{([['home','New home'],['dual','Dual occupancy'],['renovation','Renovate + extend']] as const).map(([value,label]) => <button type="button" className={projectGoal === value ? "active" : ""} onClick={() => setProjectGoal(value)} key={value}>{label}</button>)}</div>
+            <div className="input-grid three"><label><span>Storeys</span><input type="number" min="1" max="4" value={storeys} onChange={(event) => setStoreys(Number(event.target.value))} /></label><label><span>Bedrooms</span><input type="number" min="1" value={bedrooms} onChange={(event) => setBedrooms(Number(event.target.value))} /></label><label><span>Car spaces</span><input type="number" min="0" value={parking} onChange={(event) => setParking(Number(event.target.value))} /></label></div>
+            <label className="toggle-field"><input type="checkbox" checked={existingDwelling} onChange={(event) => setExistingDwelling(event.target.checked)} /><span>Existing dwelling on the site</span></label>
+            <button className="analyse-property" disabled={!streetAddress || !suburb || postcode.length !== 4 || analysisLoading} onClick={analyseProperty}>{analysisLoading ? <><i className="analysis-spinner" />Reading NSW planning layers…</> : <>Show what is realistic <span>→</span></>}</button>
             {analysisError && <div className="analysis-error"><b>We couldn’t complete that address.</b><span>{analysisError}</span></div>}
             {!analysis && !analysisLoading && <div className="analysis-promise"><span>Live report includes</span><div><b>Zoning</b><b>Height</b><b>FSR</b><b>Lot size</b><b>Heritage</b><b>Parcel area</b></div><small>No sign-up. Results come from official NSW spatial services.</small></div>}
             {analysis && <div className="analysis-confirmation"><div><i>✓</i><span><b>Official property matched</b><small>{analysis.matchedAddress} · {analysis.council} Council</small></span></div><dl><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>Planning instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Official parcel area</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²</dd></div><div><dt>Data status</dt><dd>Live NSW layers</dd></div></dl></div>}
@@ -331,6 +384,8 @@ export default function Home() {
             <div className="parcel-map"><div className="map-grid" /><div className="road-label">{analysis ? `OFFICIAL PROPERTY · ${analysis.controls.zone}` : "AWAITING ADDRESS"}</div><div className={`parcel-shape ${analysis ? "live" : ""}`} style={{ clipPath: boundaryPolygon }}><span>{analysis ? "NSW CADASTRAL PARCEL" : "PROPERTY ENVELOPE"}</span><b>{analysis?.area?.toLocaleString() ?? landArea} m²</b><i className="north">N ↑</i></div><div className="map-pin"><i /><span>{analysis?.matchedAddress || projectAddress || "Your property"}</span></div></div>
             {analysis ? <div className="control-dashboard">
               <header><div><span>Automatic planning snapshot</span><strong>What the mapped controls say</strong></div><b>LIVE</b></header>
+              <div className="guidance-card"><span>Plain-English feasibility read</span><strong>{analysis.guidance.verdict}</strong><p>{analysis.guidance.explanation}</p><small><b>Likely route:</b> {analysis.guidance.pathway} · <b>Reference:</b> {analysis.guidance.code}</small></div>
+              <div className="guidance-checks"><span>What to test next</span>{analysis.guidance.checks.map((check) => <div key={check.label}><b>{check.label}</b><span className={check.tone}>{check.value}</span></div>)}</div>
               <div className="control-grid"><article><span>Zone</span><strong>{analysis.controls.zone}</strong><small>{analysis.controls.zoneName}</small></article><article><span>Max height</span><strong>{analysis.controls.maxHeight ?? "Not mapped"}</strong><small>{analysis.controls.maxHeight ? "LEP maximum" : "LEP / DCP review"}</small></article><article><span>Floor-space ratio</span><strong>{analysis.controls.fsr ?? "Not mapped"}</strong><small>{analysis.controls.fsr ? "Mapped maximum" : "No statewide value hit"}</small></article><article><span>Minimum lot size</span><strong>{analysis.controls.minimumLotSize ?? "Not mapped"}</strong><small>{analysis.controls.minimumLotSize ? "Mapped control" : "LEP clause review"}</small></article></div>
               <div className="opportunity-list"><span>Development opportunities to test</span>{analysis.opportunities.map(([title, status, detail]) => <div key={title}><i>{status === "Likely zone-compatible" || status === "Zone-led opportunity" ? "✓" : "?"}</i><p><b>{title}</b><small>{detail}</small></p><strong>{status}</strong></div>)}</div>
               <div className="constraint-list"><span>Constraints + unknowns</span>{analysis.constraints.map((constraint) => <div key={constraint.name}><b>{constraint.name}</b><span>{constraint.value}</span><i className={constraint.status}>{constraint.status === "mapped" ? "Mapped" : constraint.status === "clear" ? "No hit" : "Verify"}</i></div>)}</div>
