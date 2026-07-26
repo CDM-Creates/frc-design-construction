@@ -5,6 +5,7 @@ type ArcFeature = { attributes?: Record<string, unknown>; geometry?: { rings?: n
 const ADDRESS_SERVICE = "https://mapsq.six.nsw.gov.au/services/public/Address_Location";
 const PLANNING_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/services/ePlanning/Planning_Portal_Principal_Planning/MapServer";
 const PROPERTY_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/12";
+const LOT_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/8";
 
 const roadTypes: Record<string, string> = {
   st: "Street", street: "Street", rd: "Road", road: "Road", ave: "Avenue", avenue: "Avenue",
@@ -40,6 +41,40 @@ async function queryPlanningLayer(layer: number, longitude: number, latitude: nu
   });
   const data = await getJson(`${PLANNING_SERVICE}/${layer}/query?${params}`);
   return (data.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
+}
+
+function parcelDimensions(ring: number[][]) {
+  const points = ring.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  if (points.length < 4) return null;
+  const originLongitude = points.reduce((sum, [longitude]) => sum + longitude, 0) / points.length;
+  const originLatitude = points.reduce((sum, [, latitude]) => sum + latitude, 0) / points.length;
+  const latitudeRadians = originLatitude * Math.PI / 180;
+  const metres = points.map(([longitude, latitude]) => ({
+    x: (longitude - originLongitude) * 111320 * Math.cos(latitudeRadians),
+    y: (latitude - originLatitude) * 110540,
+  }));
+
+  let best: { width: number; depth: number; area: number } | null = null;
+  for (let index = 1; index < metres.length; index += 1) {
+    const previous = metres[index - 1];
+    const current = metres[index];
+    const angle = Math.atan2(current.y - previous.y, current.x - previous.x);
+    const cosine = Math.cos(-angle);
+    const sine = Math.sin(-angle);
+    const rotated = metres.map(({ x, y }) => ({ x: x * cosine - y * sine, y: x * sine + y * cosine }));
+    const xs = rotated.map((point) => point.x);
+    const ys = rotated.map((point) => point.y);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const depth = Math.max(...ys) - Math.min(...ys);
+    const rectangleArea = width * depth;
+    if (width > 0 && depth > 0 && (!best || rectangleArea < best.area)) best = { width, depth, area: rectangleArea };
+  }
+  if (!best) return null;
+  return {
+    frontage: Math.round(Math.min(best.width, best.depth) * 10) / 10,
+    depth: Math.round(Math.max(best.width, best.depth) * 10) / 10,
+    source: "Approximate dimensions calculated from the mapped NSW parcel boundary; confirm against survey.",
+  };
 }
 
 function opportunitiesForZone(zone: string) {
@@ -214,8 +249,19 @@ export async function POST(request: Request) {
       f: "json",
     });
 
-    const [propertyData, fsr, height, heritage, zoning, lotSize] = await Promise.all([
+    const lotParams = new URLSearchParams({
+      geometry: `${longitude},${latitude}`,
+      geometryType: "esriGeometryPoint",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outFields: "lotnumber,sectionnumber,planlabel,planlotarea,lotidstring",
+      returnGeometry: "false",
+      f: "json",
+    });
+
+    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize] = await Promise.all([
       getJson(`${PROPERTY_SERVICE}/query?${propertyParams}`),
+      getJson(`${LOT_SERVICE}/query?${lotParams}`),
       queryPlanningLayer(11, longitude, latitude),
       queryPlanningLayer(14, longitude, latitude),
       queryPlanningLayer(16, longitude, latitude),
@@ -224,17 +270,30 @@ export async function POST(request: Request) {
     ]);
 
     const property = propertyData.features?.[0] as ArcFeature | undefined;
+    const lot = (lotData.features?.[0] as ArcFeature | undefined)?.attributes;
     const zoneCode = String(zoning?.SYM_CODE ?? "Not mapped");
     const area = Number(property?.attributes?.Shape__Area ?? 0);
+    const boundary = property?.geometry?.rings?.[0] ?? [];
+    const dimensions = parcelDimensions(boundary);
     const mappedHeight = height?.MAX_B_H ? Number(height.MAX_B_H) : null;
     const mappedFsr = fsr?.FSR ? Number(fsr.FSR) : null;
+    const lotNumber = String(lot?.lotnumber ?? "").trim();
+    const sectionNumber = String(lot?.sectionnumber ?? "").trim();
+    const planLabel = String(lot?.planlabel ?? "").trim();
+    const lotDp = lotNumber && planLabel ? `Lot ${lotNumber}${sectionNumber ? `, Section ${sectionNumber}` : ""} / ${planLabel}` : null;
+    const streetAddress = `${match.houseNumberString} ${match.roadName} ${match.roadType}`.replace(/\s+/g, " ").trim();
+    const suburb = String(match.suburbName ?? parsed.suburb).trim();
+    const postcode = String(match.postCode ?? parsed.postcode ?? "").replace(/\D/g, "").slice(0, 4);
     return Response.json({
-      matchedAddress: match.addressString,
+      matchedAddress: [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", "),
+      addressDetails: { streetAddress, suburb, postcode },
       council: match.council,
       coordinates: { longitude, latitude },
       propertyId: match.propid,
       area: area ? Math.round(area) : null,
-      boundary: property?.geometry?.rings?.[0] ?? [],
+      boundary,
+      lotDp,
+      siteDimensions: dimensions,
       controls: {
         zone: zoneCode,
         zoneName: zoning?.LAY_CLASS ?? "Not mapped",

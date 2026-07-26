@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { futureSubscriptionFeatures, getSimulatorEntitlement } from "./access";
 import { buildProjectConcept, type PlanningSnapshot, type ProjectType } from "./project-engine";
@@ -8,8 +8,11 @@ import { calculateRegulatoryScreen } from "./regulatory-engine";
 
 type SiteAnalysis = PlanningSnapshot & {
   matchedAddress: string;
+  addressDetails?: { streetAddress: string; suburb: string; postcode: string };
   council: string;
   boundary: number[][];
+  lotDp?: string | null;
+  siteDimensions?: { frontage: number; depth: number; source: string } | null;
   guidance: {
     verdict: string;
     pathway: string;
@@ -99,8 +102,12 @@ export default function ProjectSimulator() {
   const entitlement = getSimulatorEntitlement();
   const [form, setForm] = useState<SimulatorForm>(initialForm);
   const [analysis, setAnalysis] = useState<SiteAnalysis | null>(null);
+  const [matchedProperty, setMatchedProperty] = useState<SiteAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [addressError, setAddressError] = useState("");
   const [error, setError] = useState("");
+  const lastResolvedAddress = useRef("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -110,12 +117,16 @@ export default function ProjectSimulator() {
       return Number.isFinite(value) && value > 0 ? value : fallback;
     };
     const requestedGoal = params.get("projectGoal");
+    const introStreet = params.get("streetAddress") ?? "";
+    const introSuburb = params.get("suburb") ?? "";
+    const introPostcode = (params.get("postcode") ?? "").replace(/\D/g, "").slice(0, 4);
+    const fullIntroAddress = [introStreet, introSuburb, introPostcode && `NSW ${introPostcode}`].filter(Boolean).join(", ");
     const hydratePrefill = window.setTimeout(() => {
       setForm((current) => ({
         ...current,
-        streetAddress: params.get("streetAddress") ?? current.streetAddress,
-        suburb: params.get("suburb") ?? current.suburb,
-        postcode: (params.get("postcode") ?? current.postcode).replace(/\D/g, "").slice(0, 4),
+        streetAddress: fullIntroAddress || current.streetAddress,
+        suburb: introSuburb || current.suburb,
+        postcode: introPostcode || current.postcode,
         knownLandArea: positiveNumber("knownLandArea", current.knownLandArea),
         frontage: positiveNumber("frontage", current.frontage),
         depth: positiveNumber("depth", current.depth),
@@ -128,12 +139,68 @@ export default function ProjectSimulator() {
     return () => window.clearTimeout(hydratePrefill);
   }, []);
 
+  useEffect(() => {
+    const query = form.streetAddress.replace(/\s+/g, " ").trim();
+    const looksComplete = /^\d+[A-Za-z]?\s+.+\s+(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Crescent|Cres|Close|Cl|Place|Pl|Parade|Pde|Way|Lane|Ln|Terrace|Tce|Highway|Hwy),?\s+.+/i.test(query);
+    if (!looksComplete || lastResolvedAddress.current === query.toUpperCase()) {
+      setAddressLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const lookup = window.setTimeout(async () => {
+      setAddressLoading(true);
+      setAddressError("");
+      try {
+        const response = await fetch("/api/site-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: query }),
+          signal: controller.signal,
+        });
+        const result = await response.json() as SiteAnalysis & { error?: string };
+        if (!response.ok) throw new Error(result.error ?? "No matching NSW property was found.");
+        lastResolvedAddress.current = result.matchedAddress.toUpperCase();
+        setForm((current) => ({
+          ...current,
+          streetAddress: result.matchedAddress,
+          suburb: result.addressDetails?.suburb ?? current.suburb,
+          postcode: result.addressDetails?.postcode ?? current.postcode,
+          lotDp: result.lotDp ?? current.lotDp,
+          knownLandArea: result.area ?? current.knownLandArea,
+          frontage: result.siteDimensions?.frontage ?? current.frontage,
+          depth: result.siteDimensions?.depth ?? current.depth,
+        }));
+        setMatchedProperty(result);
+        setAnalysis(null);
+        setError("");
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setMatchedProperty(null);
+        setAddressError(caught instanceof Error ? caught.message : "No matching NSW property was found.");
+      } finally {
+        if (!controller.signal.aborted) setAddressLoading(false);
+      }
+    }, 850);
+
+    return () => {
+      window.clearTimeout(lookup);
+      controller.abort();
+    };
+  }, [form.streetAddress]);
+
   const update = <K extends keyof SimulatorForm>(key: K, value: SimulatorForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setAnalysis(null);
+    if (key === "streetAddress") {
+      lastResolvedAddress.current = "";
+      setMatchedProperty(null);
+      setAddressError("");
+    }
   };
 
-  const concept = useMemo(() => buildProjectConcept(form, analysis), [analysis, form]);
+  const planningSnapshot = analysis ?? matchedProperty;
+  const concept = useMemo(() => buildProjectConcept(form, planningSnapshot), [form, planningSnapshot]);
   const regulatory = useMemo(() => analysis ? calculateRegulatoryScreen({
     projectGoal: form.projectGoal,
     lotArea: concept.siteAreaUsed,
@@ -166,11 +233,12 @@ export default function ProjectSimulator() {
       const response = await fetch("/api/site-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, address: form.streetAddress }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "The property check could not be completed.");
       setAnalysis(result);
+      setMatchedProperty(result);
       window.setTimeout(() => document.querySelector("#simulation-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The property check could not be completed.");
@@ -179,7 +247,7 @@ export default function ProjectSimulator() {
     }
   };
 
-  const address = [form.streetAddress, form.suburb, form.postcode && `NSW ${form.postcode}`].filter(Boolean).join(", ");
+  const address = matchedProperty?.matchedAddress || form.streetAddress;
   const brief = form.description.trim() || `A ${form.storeys}-storey ${projectNames[form.projectGoal]} with ${form.bedrooms} bedrooms, ${form.bathrooms} bathrooms and ${form.parking} car spaces${form.projectGoal === "dual" ? " in each home" : ""}. Priorities include ${form.mustHaves.toLowerCase()}.`;
 
   return (
@@ -209,18 +277,21 @@ export default function ProjectSimulator() {
           <div className="sim-form-head"><span>01 / Client inputs</span><h2>Describe the land<br />and the ambition.</h2><p>Fields marked “client supplied” remain separate from government-mapped facts in the final report.</p></div>
 
           <fieldset>
-            <legend><i>01</i><span>Property identity<small>Used to match NSW planning records</small></span></legend>
-            <label className="span-2"><span>Street address</span><input required value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="31 Crown Line Drive" /></label>
-            <label><span>Suburb</span><input required value={form.suburb} onChange={(event) => update("suburb", event.target.value)} placeholder="Rothbury" /></label>
-            <label><span>Postcode</span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={form.postcode} onChange={(event) => update("postcode", event.target.value.replace(/\D/g, ""))} placeholder="2320" /></label>
-            <label className="span-2"><span>Lot / DP <small>optional</small></span><input value={form.lotDp} onChange={(event) => update("lotDp", event.target.value)} placeholder="Lot 12 / DP 123456" /></label>
+            <legend><i>01</i><span>Property identity<small>One address fills the mapped site facts</small></span></legend>
+            <label className="span-2 address-entry"><span>Full NSW property address <small>Type street, suburb and optional postcode</small></span><input required autoComplete="street-address" value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="88 Hyatts Road, Oakhurst NSW 2761" /><small className="address-entry-help">Pause after typing—the official parcel will be matched automatically.</small></label>
+            {addressLoading && <div className="address-autofill loading span-2"><i className="analysis-spinner" /><div><strong>Finding the official NSW parcel…</strong><span>Address, council, lot, mapped area and approximate dimensions are being checked.</span></div></div>}
+            {!addressLoading && matchedProperty && <div className="address-autofill matched span-2"><i>✓</i><div><strong>Property matched and fields filled</strong><span>{matchedProperty.council} Council · {matchedProperty.controls.zone} {matchedProperty.controls.zoneName} · {matchedProperty.area?.toLocaleString() ?? "Area unavailable"} m²</span><small>Mapped dimensions are indicative and remain subject to survey.</small></div></div>}
+            {!addressLoading && addressError && <div className="address-autofill failed span-2"><i>!</i><div><strong>We need a more complete address</strong><span>{addressError}</span></div></div>}
+            <label><span>Suburb <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required value={form.suburb} onChange={(event) => update("suburb", event.target.value)} placeholder="Oakhurst" /></label>
+            <label><span>Postcode <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={form.postcode} onChange={(event) => update("postcode", event.target.value.replace(/\D/g, ""))} placeholder="2761" /></label>
+            <label className="span-2"><span>Lot / DP <small>{form.lotDp ? "Auto-filled" : "Optional / unavailable"}</small></span><input value={form.lotDp} onChange={(event) => update("lotDp", event.target.value)} placeholder="Lot 1109 / DP263160" /></label>
           </fieldset>
 
           <fieldset>
-            <legend><i>02</i><span>Known land dimensions<small>Client supplied—not overwritten by the map</small></span></legend>
-            <label><span>Plot area</span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
-            <label><span>Frontage</span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.frontage} onChange={(event) => update("frontage", Number(event.target.value))} /><b>m</b></div></label>
-            <label><span>Approx. depth</span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.depth} onChange={(event) => update("depth", Number(event.target.value))} /><b>m</b></div></label>
+            <legend><i>02</i><span>Known land dimensions<small>Auto-filled from NSW mapping—confirm against survey</small></span></legend>
+            <label><span>Plot area <small>{matchedProperty?.area ? "Mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
+            <label><span>Frontage <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.frontage} onChange={(event) => update("frontage", Number(event.target.value))} /><b>m</b></div></label>
+            <label><span>Approx. depth <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.depth} onChange={(event) => update("depth", Number(event.target.value))} /><b>m</b></div></label>
             <label><span>Lot type</span><select value={form.lotType} onChange={(event) => update("lotType", event.target.value as SimulatorForm["lotType"])}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label>
             <label><span>Site slope</span><select value={form.slope} onChange={(event) => update("slope", event.target.value as SimulatorForm["slope"])}><option value="flat">Mostly flat</option><option value="gentle">Gentle slope</option><option value="steep">Steep / unknown levels</option></select></label>
             <label><span>North orientation</span><select value={form.orientation} onChange={(event) => update("orientation", event.target.value as SimulatorForm["orientation"])}><option value="unknown">Not sure</option><option value="north-rear">North to rear</option><option value="north-front">North to street</option><option value="north-side">North to side</option></select></label>
@@ -252,7 +323,7 @@ export default function ProjectSimulator() {
           </fieldset>
 
           {error && <div className="sim-error"><b>We couldn’t complete the live property check.</b><span>{error}</span></div>}
-          <button className="run-simulation" disabled={loading || form.postcode.length !== 4} type="submit">{loading ? "Checking NSW planning layers…" : "Build my project overview"}<span>{loading ? "···" : "→"}</span></button>
+          <button className="run-simulation" disabled={loading || addressLoading || form.postcode.length !== 4} type="submit">{loading ? "Checking NSW planning layers…" : "Build my project overview"}<span>{loading ? "···" : "→"}</span></button>
           <p className="sim-disclaimer">This is an early feasibility screen, not development consent, a planning certificate, legal advice or a construction-ready design.</p>
         </form>
 
