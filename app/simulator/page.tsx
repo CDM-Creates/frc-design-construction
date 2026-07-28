@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { futureSubscriptionFeatures, getSimulatorEntitlement } from "./access";
+import { getSimulatorEntitlement } from "./access";
 import { buildProjectConcept, type PlanningSnapshot, type ProjectType } from "./project-engine";
 import { calculateRegulatoryScreen } from "./regulatory-engine";
 
@@ -23,6 +23,20 @@ type SiteAnalysis = PlanningSnapshot & {
     missing: string[];
   };
   constraints: { name: string; value: string; status: string }[];
+  analysedAt: string;
+  source?: {
+    planningPortal: string;
+    dataAttribution: string;
+    retrievedAt: string;
+    areaSource: string;
+    layerStatus: {
+      zoning: "mapped" | "not-mapped" | "unavailable";
+      height: "mapped" | "not-mapped" | "unavailable";
+      floorSpaceRatio: "mapped" | "not-mapped" | "unavailable";
+      heritage: "mapped" | "not-mapped" | "unavailable";
+      minimumLotSize: "mapped" | "not-mapped" | "unavailable";
+    };
+  };
 };
 
 type SimulatorForm = {
@@ -104,6 +118,25 @@ const privateLocation = (result: SiteAnalysis, fallbackSuburb = "", fallbackPost
   return [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ") || "Private NSW property";
 };
 
+const completeNSWAddress = (value: string) => (
+  /^\d+[A-Za-z]?\s+.+\s+(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Crescent|Cres|Close|Cl|Place|Pl|Parade|Pde|Way|Lane|Ln|Terrace|Tce|Highway|Hwy|Court|Ct|Grove|Gr|Boulevard|Blvd|Boulevarde|Bvd|Esplanade|Esp|Rise|Trail|Trl|Mews|Square|Sq),?\s+.+\s+\d{4}$/i
+    .test(value.replace(/\s+/g, " ").trim())
+);
+
+const retrievalLabel = (value?: string) => {
+  if (!value) return "Checked just now";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Checked just now"
+    : `Checked ${date.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} at ${date.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}`;
+};
+
+const liveControlValue = (
+  value: string | null | undefined,
+  status: "mapped" | "not-mapped" | "unavailable" | undefined,
+  missingLabel: string,
+) => value ?? (status === "unavailable" ? "Live layer unavailable — retry" : missingLabel);
+
 export default function ProjectSimulator() {
   const entitlement = getSimulatorEntitlement();
   const [form, setForm] = useState<SimulatorForm>(initialForm);
@@ -115,6 +148,7 @@ export default function ProjectSimulator() {
   const [error, setError] = useState("");
   const lastResolvedAddress = useRef("");
   const privateStreetAddress = useRef("");
+  const lookupRequestId = useRef(0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -154,62 +188,72 @@ export default function ProjectSimulator() {
     return () => window.clearTimeout(hydratePrefill);
   }, []);
 
+  const lookupAddress = useCallback(async (rawAddress: string, signal?: AbortSignal) => {
+    const query = rawAddress.replace(/\s+/g, " ").trim();
+    if (!completeNSWAddress(query)) {
+      setAddressError("Include the street number, street name, suburb and four-digit NSW postcode.");
+      return;
+    }
+
+    const requestId = ++lookupRequestId.current;
+    setAddressLoading(true);
+    setAddressError("");
+    try {
+      const response = await fetch("/api/site-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: query }),
+        signal,
+      });
+      const result = await response.json() as SiteAnalysis & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No matching NSW property was found.");
+      if (requestId !== lookupRequestId.current || signal?.aborted) return;
+
+      const safeLocation = privateLocation(result);
+      privateStreetAddress.current = result.matchedAddress;
+      lastResolvedAddress.current = query.toUpperCase();
+      setForm((current) => ({
+        ...current,
+        suburb: result.addressDetails?.suburb ?? current.suburb,
+        postcode: result.addressDetails?.postcode ?? current.postcode,
+        lotDp: result.lotDp ?? current.lotDp,
+        knownLandArea: result.area ?? current.knownLandArea,
+        frontage: result.siteDimensions?.frontage ?? current.frontage,
+        depth: result.siteDimensions?.depth ?? current.depth,
+      }));
+      setMatchedProperty({ ...result, matchedAddress: safeLocation });
+      setAnalysis(null);
+      setError("");
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (requestId !== lookupRequestId.current) return;
+      setMatchedProperty(null);
+      setAddressError(caught instanceof Error ? caught.message : "No matching NSW property was found.");
+    } finally {
+      if (requestId === lookupRequestId.current && !signal?.aborted) setAddressLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const query = form.streetAddress.replace(/\s+/g, " ").trim();
-    const looksComplete = /^\d+[A-Za-z]?\s+.+\s+(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Crescent|Cres|Close|Cl|Place|Pl|Parade|Pde|Way|Lane|Ln|Terrace|Tce|Highway|Hwy),?\s+.+/i.test(query);
-    if (!looksComplete || lastResolvedAddress.current === query.toUpperCase()) {
+    if (!completeNSWAddress(query) || lastResolvedAddress.current === query.toUpperCase()) {
       setAddressLoading(false);
       return;
     }
 
     const controller = new AbortController();
-    const lookup = window.setTimeout(async () => {
-      setAddressLoading(true);
-      setAddressError("");
-      try {
-        const response = await fetch("/api/site-analysis", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: query }),
-          signal: controller.signal,
-        });
-        const result = await response.json() as SiteAnalysis & { error?: string };
-        if (!response.ok) throw new Error(result.error ?? "No matching NSW property was found.");
-        const safeLocation = privateLocation(result);
-        privateStreetAddress.current = result.matchedAddress;
-        lastResolvedAddress.current = result.matchedAddress.toUpperCase();
-        setForm((current) => ({
-          ...current,
-          streetAddress: safeLocation,
-          suburb: result.addressDetails?.suburb ?? current.suburb,
-          postcode: result.addressDetails?.postcode ?? current.postcode,
-          lotDp: result.lotDp ?? current.lotDp,
-          knownLandArea: result.area ?? current.knownLandArea,
-          frontage: result.siteDimensions?.frontage ?? current.frontage,
-          depth: result.siteDimensions?.depth ?? current.depth,
-        }));
-        setMatchedProperty({ ...result, matchedAddress: safeLocation });
-        setAnalysis(null);
-        setError("");
-      } catch (caught) {
-        if (caught instanceof DOMException && caught.name === "AbortError") return;
-        setMatchedProperty(null);
-        setAddressError(caught instanceof Error ? caught.message : "No matching NSW property was found.");
-      } finally {
-        if (!controller.signal.aborted) setAddressLoading(false);
-      }
-    }, 850);
-
+    const lookup = window.setTimeout(() => void lookupAddress(query, controller.signal), 650);
     return () => {
       window.clearTimeout(lookup);
       controller.abort();
     };
-  }, [form.streetAddress]);
+  }, [form.streetAddress, lookupAddress]);
 
   const update = <K extends keyof SimulatorForm>(key: K, value: SimulatorForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setAnalysis(null);
     if (key === "streetAddress") {
+      lookupRequestId.current += 1;
       privateStreetAddress.current = "";
       lastResolvedAddress.current = "";
       setMatchedProperty(null);
@@ -258,7 +302,6 @@ export default function ProjectSimulator() {
       const safeLocation = privateLocation(result, form.suburb, form.postcode);
       const safeResult = { ...result, matchedAddress: safeLocation };
       privateStreetAddress.current = result.matchedAddress;
-      setForm((current) => ({ ...current, streetAddress: safeLocation }));
       setAnalysis(safeResult);
       setMatchedProperty(safeResult);
       window.setTimeout(() => document.querySelector("#simulation-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -282,27 +325,45 @@ export default function ProjectSimulator() {
 
       <header className="sim-hero">
         <div>
-          <span className="sim-kicker">FRC Project Simulator · NSW</span>
-          <h1>See the project.<br /><em>Understand the limits.</em></h1>
+          <span className="sim-kicker">FRC Property Feasibility · Live NSW data</span>
+          <h1>Start with<br /><em>the address.</em></h1>
         </div>
-        <p>Combine what you know about the land with live NSW planning layers. We turn the brief into a concept-level project picture, identify the likely approval path and show exactly what must be verified before design proceeds.</p>
+        <p>Enter one complete NSW property address. We match the official parcel, retrieve the mapped planning controls available today, then test your project brief without inventing missing information.</p>
       </header>
 
-      <div className="access-strip">
-        <span><i />{entitlement.label}</span>
-        <p>Built with a clean subscription boundary for future saved reports, comparisons and project sharing.</p>
-        <button type="button" title={futureSubscriptionFeatures.join(", ")}>Subscription-ready <span>＋</span></button>
+      <div className="data-connection-strip">
+        <span><i />Live NSW property services</span>
+        <p>Official address match · cadastral parcel · zoning · height · FSR · lot size · heritage</p>
+        <b>No AI guessing</b>
       </div>
 
       <section className="sim-workspace">
         <form className="sim-form" onSubmit={submit}>
-          <div className="sim-form-head"><span>01 / Client inputs</span><h2>Describe the land<br />and the ambition.</h2><p>Fields marked “client supplied” remain separate from government-mapped facts in the final report.</p></div>
+          <div className="sim-progress" aria-label="Feasibility workflow">
+            <span className={matchedProperty ? "done" : "active"}><i>1</i> Match property</span>
+            <span className={matchedProperty ? "active" : ""}><i>2</i> Set the brief</span>
+            <span className={analysis ? "done" : ""}><i>3</i> Review feasibility</span>
+          </div>
+          <div className="sim-form-head"><span>01 / Property first</span><h2>Ground the brief<br />in live site facts.</h2><p>Government-mapped facts stay visibly separate from client-supplied assumptions and items that still need a survey or professional check.</p></div>
 
           <fieldset>
-            <legend><i>01</i><span>Property identity<small>One address fills the mapped site facts</small></span></legend>
-            <label className="span-2 address-entry"><span>Full NSW property address <small>Private lookup only</small></span><input required autoComplete="street-address" value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="Enter street, suburb and NSW postcode" /><small className="address-entry-help">Pause after typing—the official parcel will be matched automatically, then the street address is replaced by a suburb-only label.</small></label>
+            <legend><i>01</i><span>Property identity<small>Connect to the official NSW parcel</small></span></legend>
+            <label className="span-2 address-entry"><span>Complete NSW property address <small>Used only for this private lookup</small></span><div className="address-entry-row"><input required autoComplete="street-address" value={form.streetAddress} onChange={(event) => update("streetAddress", event.target.value)} placeholder="88 Hyatts Road, Oakhurst NSW 2761" /><button type="button" disabled={addressLoading || !completeNSWAddress(form.streetAddress)} onClick={() => { lastResolvedAddress.current = ""; void lookupAddress(form.streetAddress); }}>{addressLoading ? "Checking…" : matchedProperty ? "Refresh live data" : "Check property"}</button></div><small className="address-entry-help">Include the street number, street name, suburb and four-digit postcode. Lookup begins automatically when the address is complete.</small></label>
             {addressLoading && <div className="address-autofill loading span-2"><i className="analysis-spinner" /><div><strong>Finding the official NSW parcel…</strong><span>Address, council, lot, mapped area and approximate dimensions are being checked.</span></div></div>}
-            {!addressLoading && matchedProperty && <div className="address-autofill matched span-2"><i>✓</i><div><strong>Property matched and fields filled</strong><span>{matchedProperty.council} Council · {matchedProperty.controls.zone} {matchedProperty.controls.zoneName} · {matchedProperty.area?.toLocaleString() ?? "Area unavailable"} m²</span><small>Mapped dimensions are indicative and remain subject to survey.</small></div></div>}
+            {!addressLoading && matchedProperty && <div className="live-property-card span-2">
+              <header><div><i>✓</i><span><strong>Official NSW property matched</strong><small>{retrievalLabel(matchedProperty.source?.retrievedAt ?? matchedProperty.analysedAt)}</small></span></div><b>LIVE DATA</b></header>
+              <div className="live-property-grid">
+                <div><span>Council</span><strong>{matchedProperty.council || "Not returned"}</strong></div>
+                <div><span>Lot / DP</span><strong>{matchedProperty.lotDp || "Not returned"}</strong></div>
+                <div><span>Mapped parcel area</span><strong>{matchedProperty.area?.toLocaleString() ?? "Not returned"} m²</strong><small>{matchedProperty.source?.areaSource}</small></div>
+                <div><span>Zone</span><strong>{matchedProperty.controls.zone} · {matchedProperty.controls.zoneName}</strong></div>
+                <div><span>Height</span><strong>{liveControlValue(matchedProperty.controls.maxHeight, matchedProperty.source?.layerStatus.height, "No numeric layer hit")}</strong></div>
+                <div><span>Floor-space ratio</span><strong>{liveControlValue(matchedProperty.controls.fsr, matchedProperty.source?.layerStatus.floorSpaceRatio, "No numeric layer hit")}</strong></div>
+                <div><span>Minimum lot size</span><strong>{liveControlValue(matchedProperty.controls.minimumLotSize, matchedProperty.source?.layerStatus.minimumLotSize, "No numeric layer hit")}</strong></div>
+                <div><span>Heritage</span><strong>{liveControlValue(matchedProperty.controls.heritage, matchedProperty.source?.layerStatus.heritage, "No principal layer hit")}</strong></div>
+              </div>
+              <footer><span>Source: NSW Spatial Services + NSW Planning</span><small>Dimensions are calculated from mapped parcel geometry and must be confirmed by survey.</small></footer>
+            </div>}
             {!addressLoading && addressError && <div className="address-autofill failed span-2"><i>!</i><div><strong>We need a more complete address</strong><span>{addressError}</span></div></div>}
             <label><span>Suburb <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required value={form.suburb} onChange={(event) => update("suburb", event.target.value)} placeholder="NSW suburb" /></label>
             <label><span>Postcode <small>{matchedProperty ? "Auto-filled" : "Pending"}</small></span><input required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={form.postcode} onChange={(event) => update("postcode", event.target.value.replace(/\D/g, ""))} placeholder="Postcode" /></label>
@@ -310,8 +371,8 @@ export default function ProjectSimulator() {
           </fieldset>
 
           <fieldset>
-            <legend><i>02</i><span>Known land dimensions<small>Auto-filled from NSW mapping—confirm against survey</small></span></legend>
-            <label><span>Plot area <small>{matchedProperty?.area ? "Mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
+            <legend><i>02</i><span>Working site dimensions<small>Mapped geometry · confirm against survey</small></span></legend>
+            <label><span>Working site area <small>{matchedProperty?.area ? "NSW mapped" : "Client supplied"}</small></span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
             <label><span>Frontage <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.frontage} onChange={(event) => update("frontage", Number(event.target.value))} /><b>m</b></div></label>
             <label><span>Approx. depth <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.depth} onChange={(event) => update("depth", Number(event.target.value))} /><b>m</b></div></label>
             <label><span>Lot type</span><select value={form.lotType} onChange={(event) => update("lotType", event.target.value as SimulatorForm["lotType"])}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label>
@@ -345,7 +406,7 @@ export default function ProjectSimulator() {
           </fieldset>
 
           {error && <div className="sim-error"><b>We couldn’t complete the live property check.</b><span>{error}</span></div>}
-          <button className="run-simulation" disabled={loading || addressLoading || form.postcode.length !== 4} type="submit">{loading ? "Checking NSW planning layers…" : "Build my project overview"}<span>{loading ? "···" : "→"}</span></button>
+          <button className="run-simulation" disabled={loading || addressLoading || !matchedProperty || form.postcode.length !== 4} type="submit">{loading ? "Refreshing live planning data…" : matchedProperty ? "Build my property feasibility" : "Match the property first"}<span>{loading ? "···" : "→"}</span></button>
           <p className="sim-disclaimer">This is an early feasibility screen, not development consent, a planning certificate, legal advice or a construction-ready design.</p>
         </form>
 
@@ -370,7 +431,7 @@ export default function ProjectSimulator() {
       </section>
 
       {analysis && <section className="simulation-result" id="simulation-result">
-        <header className="result-heading"><div><span>02 / Generated project</span><h2>A house built from<br /><em>the actual brief.</em></h2></div><div className={`result-verdict ${concept.overallStatus}`}><small>Mapped-control result</small><strong>{concept.headline}</strong><span>{analysis.guidance.pathway}</span></div></header>
+        <header className="result-heading"><div><span>03 / Property feasibility</span><h2>Live site facts.<br /><em>A traceable brief.</em></h2></div><div className={`result-verdict ${concept.overallStatus}`}><small>Mapped-control result</small><strong>{concept.headline}</strong><span>{analysis.guidance.pathway}</span></div></header>
 
         <div className="project-story">
           <div><span>Client brief, translated</span><h3>{form.storeys}-storey {projectNames[form.projectGoal]}</h3><p>{brief}</p><dl><div><dt>Budget</dt><dd>{form.budget}</dd></div><div><dt>Timing</dt><dd>{form.timing}</dd></div><div><dt>Known land</dt><dd>{form.knownLandArea.toLocaleString()} m² · {form.frontage}m frontage</dd></div><div><dt>Orientation</dt><dd>{form.orientation.replace("-", " ")}</dd></div></dl></div>
@@ -378,7 +439,7 @@ export default function ProjectSimulator() {
         </div>
 
         <div className="generated-house">
-          <header><div><span>Room-by-room concept</span><h2>The generated<br /><em>house plan.</em></h2></div><p>Every labelled space comes from the entered bedroom, bathroom and parking counts or from a recognised keyword in the client description. Areas are shown openly so the result can be challenged and revised.</p></header>
+          <header><div><span>Deterministic room programme</span><h2>The working<br /><em>project brief.</em></h2></div><p>Every labelled space comes from the entered bedroom, bathroom and parking counts or from a recognised keyword in the client description. Areas are shown openly so the result can be challenged and revised.</p></header>
           <div className="generated-views">
             <div className={`generated-elevation ${form.projectGoal} ${form.roofForm} ${form.materialDirection}`}>
               <div className="elevation-caption"><span>Generated street elevation</span><b>{form.storeys} storeys · {form.roofForm} roof · {form.materialDirection} palette</b></div>
@@ -461,7 +522,6 @@ export default function ProjectSimulator() {
 
         <div className="source-panel"><div><span>Official references</span><h2>Trace every assumption<br />back to its source.</h2><p>These links are intentionally visible so clients can verify the current NSW rules. Local council controls and the in-force legislation must still be checked for the exact property.</p></div><div>{officialSources.map(([name, note, href]) => <a href={href} target="_blank" rel="noreferrer" key={name}><span><b>{name}</b><small>{note}</small></span><i>↗</i></a>)}</div></div>
 
-        <div className="subscription-preview"><div><small>Future member workspace</small><strong>Keep this property alive after the first simulation.</strong><p>The page is ready to connect reports and usage to a paid account without changing the planning engine.</p></div><ul>{futureSubscriptionFeatures.map((feature) => <li key={feature}>＋ {feature}</li>)}</ul><button type="button" disabled>Membership coming next</button></div>
       </section>}
 
       <footer className="sim-footer"><Link className="brand" href="/"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></Link><p>Concept intelligence for better project decisions.<br />NSW planning data verified at the time of each simulation.</p><div><Link href="/#quote">Start with FRC ↗</Link><span>© 2026 FRC Design & Construction</span></div></footer>

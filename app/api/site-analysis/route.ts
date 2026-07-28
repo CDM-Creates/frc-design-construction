@@ -12,11 +12,14 @@ const roadTypes: Record<string, string> = {
   dr: "Drive", drive: "Drive", cct: "Circuit", circuit: "Circuit", cres: "Crescent", crescent: "Crescent",
   cl: "Close", close: "Close", pl: "Place", place: "Place", pde: "Parade", parade: "Parade",
   way: "Way", lane: "Lane", ln: "Lane", tce: "Terrace", terrace: "Terrace", hwy: "Highway", highway: "Highway",
+  ct: "Court", court: "Court", gr: "Grove", grove: "Grove", blvd: "Boulevard", boulevard: "Boulevard",
+  bvd: "Boulevarde", boulevarde: "Boulevarde", esp: "Esplanade", esplanade: "Esplanade",
+  rise: "Rise", trail: "Trail", trl: "Trail", mews: "Mews", square: "Square", sq: "Square",
 };
 
 function parseAddress(input: string) {
   const cleaned = input.replace(/\s+/g, " ").trim();
-  const match = cleaned.match(/^(\d+[A-Za-z]?)\s+(.+?)\s+(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Crescent|Cres|Close|Cl|Place|Pl|Parade|Pde|Way|Lane|Ln|Terrace|Tce|Highway|Hwy),?\s+(.+?)(?:,?\s+NSW)?(?:\s+(\d{4}))?$/i);
+  const match = cleaned.match(/^(\d+[A-Za-z]?)\s+(.+?)\s+(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Crescent|Cres|Close|Cl|Place|Pl|Parade|Pde|Way|Lane|Ln|Terrace|Tce|Highway|Hwy|Court|Ct|Grove|Gr|Boulevard|Blvd|Boulevarde|Bvd|Esplanade|Esp|Rise|Trail|Trl|Mews|Square|Sq),?\s+(.+?)(?:,?\s+NSW)?\s+(\d{4})$/i);
   if (!match) return null;
   const [, houseNumber, roadName, rawRoadType, rawSuburb, postcode] = match;
   const suburb = rawSuburb.replace(/,?\s+NSW$/i, "").trim();
@@ -224,7 +227,7 @@ export async function POST(request: Request) {
     const address = inputs.address ?? `${inputs.streetAddress ?? ""}, ${inputs.suburb ?? ""} NSW ${inputs.postcode ?? ""}`;
     const parsed = parseAddress(address);
     if (!parsed) {
-      return Response.json({ error: "Enter a complete NSW street address, suburb and postcode so the official parcel can be matched privately." }, { status: 400 });
+      return Response.json({ error: "Enter a complete NSW street address, suburb and four-digit postcode so the official parcel can be matched privately." }, { status: 400 });
     }
 
     const addressParams = new URLSearchParams({
@@ -238,9 +241,16 @@ export async function POST(request: Request) {
     const addressData = await getJson(`${ADDRESS_SERVICE}?${addressParams}`);
     const match = addressData.addressResult?.addresses?.[0];
     if (!match) return Response.json({ error: "No exact NSW address match was returned. Check the street type and suburb." }, { status: 404 });
+    const matchedPostcode = String(match.postCode ?? "").replace(/\D/g, "").slice(0, 4);
+    if (matchedPostcode && matchedPostcode !== parsed.postcode) {
+      return Response.json({ error: "The NSW address service returned a different postcode. Check the complete address and try again." }, { status: 404 });
+    }
 
     const longitude = Number(match.addressPoint.centreX);
     const latitude = Number(match.addressPoint.centreY);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !Number.isFinite(Number(match.propid))) {
+      return Response.json({ error: "The address was found, but no usable NSW parcel identifier was returned." }, { status: 422 });
+    }
     const propertyParams = new URLSearchParams({
       where: `propid=${Number(match.propid)}`,
       outFields: "propid,address,Shape__Area",
@@ -255,25 +265,43 @@ export async function POST(request: Request) {
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
       outFields: "lotnumber,sectionnumber,planlabel,planlotarea,lotidstring",
-      returnGeometry: "false",
+      returnGeometry: "true",
+      outSR: "4326",
       f: "json",
     });
 
-    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize] = await Promise.all([
+    const [propertyData, lotData] = await Promise.all([
       getJson(`${PROPERTY_SERVICE}/query?${propertyParams}`),
       getJson(`${LOT_SERVICE}/query?${lotParams}`),
+    ]);
+    const layerResults = await Promise.allSettled([
       queryPlanningLayer(11, longitude, latitude),
       queryPlanningLayer(14, longitude, latitude),
       queryPlanningLayer(16, longitude, latitude),
       queryPlanningLayer(19, longitude, latitude),
       queryPlanningLayer(22, longitude, latitude),
     ]);
+    const layerValue = (result: PromiseSettledResult<Record<string, unknown> | null>) => (
+      result.status === "fulfilled" ? result.value : null
+    );
+    const layerStatus = (result: PromiseSettledResult<Record<string, unknown> | null>) => (
+      result.status === "rejected" ? "unavailable" : result.value ? "mapped" : "not-mapped"
+    );
+    const [fsrResult, heightResult, heritageResult, zoningResult, lotSizeResult] = layerResults;
+    const fsr = layerValue(fsrResult);
+    const height = layerValue(heightResult);
+    const heritage = layerValue(heritageResult);
+    const zoning = layerValue(zoningResult);
+    const lotSize = layerValue(lotSizeResult);
 
     const property = propertyData.features?.[0] as ArcFeature | undefined;
-    const lot = (lotData.features?.[0] as ArcFeature | undefined)?.attributes;
+    const lotFeature = lotData.features?.[0] as ArcFeature | undefined;
+    const lot = lotFeature?.attributes;
     const zoneCode = String(zoning?.SYM_CODE ?? "Not mapped");
-    const area = Number(property?.attributes?.Shape__Area ?? 0);
-    const boundary = property?.geometry?.rings?.[0] ?? [];
+    const lotArea = Number(lot?.planlotarea ?? 0);
+    const propertyArea = Number(property?.attributes?.Shape__Area ?? 0);
+    const area = Number.isFinite(lotArea) && lotArea > 0 ? lotArea : Number.isFinite(propertyArea) && propertyArea > 0 ? propertyArea : 0;
+    const boundary = lotFeature?.geometry?.rings?.[0] ?? property?.geometry?.rings?.[0] ?? [];
     const dimensions = parcelDimensions(boundary);
     const mappedHeight = height?.MAX_B_H ? Number(height.MAX_B_H) : null;
     const mappedFsr = fsr?.FSR ? Number(fsr.FSR) : null;
@@ -283,7 +311,8 @@ export async function POST(request: Request) {
     const lotDp = lotNumber && planLabel ? `Lot ${lotNumber}${sectionNumber ? `, Section ${sectionNumber}` : ""} / ${planLabel}` : null;
     const streetAddress = `${match.houseNumberString} ${match.roadName} ${match.roadType}`.replace(/\s+/g, " ").trim();
     const suburb = String(match.suburbName ?? parsed.suburb).trim();
-    const postcode = String(match.postCode ?? parsed.postcode ?? "").replace(/\D/g, "").slice(0, 4);
+    const postcode = matchedPostcode || parsed.postcode;
+    const analysedAt = new Date().toISOString();
     return Response.json({
       matchedAddress: [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", "),
       addressDetails: { streetAddress, suburb, postcode },
@@ -328,8 +357,17 @@ export async function POST(request: Request) {
       source: {
         planningPortal: "https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address",
         dataAttribution: "NSW Spatial Services and NSW Department of Planning, Housing and Infrastructure",
+        retrievedAt: analysedAt,
+        areaSource: lotArea > 0 ? "Selected NSW cadastral lot" : propertyArea > 0 ? "NSW property geometry" : "Unavailable",
+        layerStatus: {
+          zoning: layerStatus(zoningResult),
+          height: layerStatus(heightResult),
+          floorSpaceRatio: layerStatus(fsrResult),
+          heritage: layerStatus(heritageResult),
+          minimumLotSize: layerStatus(lotSizeResult),
+        },
       },
-      analysedAt: new Date().toISOString(),
+      analysedAt,
     });
   } catch {
     return Response.json({ error: "The NSW data services did not complete the analysis. Please try again shortly." }, { status: 502 });

@@ -18,8 +18,6 @@ const projects = [
   { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", folio: "/projects/folios/market-street-public-folio.pdf", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor planning study", "Isometric study"] },
   { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", folio: "/projects/folios/glenda-public-folio.pdf", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Demolition study", "Elevation and section study"] },
   { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", folio: "/projects/folios/good-shepherd-public-folio.pdf", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Exterior and interior studies", "Site and floor planning study", "Isometric study"] },
-  { slug: "wills-road", name: "Wills Road Pool House", location: "Long Point, NSW", type: "Pool + landscape", image: "/projects/ai/wills-road.png", folio: "/projects/folios/wills-road-public-folio.pdf", gallery: ["/projects/ai/wills-road.png", "/projects/gallery/wills-road/01.jpg", "/projects/gallery/wills-road/02.jpg", "/projects/gallery/wills-road/03.jpg"], labels: ["AI-enhanced site study", "Site development plan", "Pool plan and section", "Pool and landscape isometric"] },
-  { slug: "kingsford", name: "Kingsford Residences", location: "Kingsford, NSW", type: "Multi-residential", image: "/projects/ai/kingsford.png", folio: "/projects/folios/kingsford-public-folio.pdf", gallery: ["/projects/ai/kingsford.png", "/projects/gallery/kingsford/01.jpg", "/projects/gallery/kingsford/02.jpg", "/projects/gallery/kingsford/03.jpg"], labels: ["AI-enhanced perspective", "Perspective studies", "Ground floor planning study", "Elevation study"] },
 ];
 
 const projectStories: Record<string, string> = {
@@ -31,8 +29,6 @@ const projectStories: Record<string, string> = {
   "market-street": "An existing home reworked through a precise addition, giving old and new a single confident architectural character.",
   glenda: "A compact residential addition that finds more space, light and connection without losing the familiarity of home.",
   "good-shepherd": "A community room designed for gathering, conversation and quiet flexibility within a restrained material envelope.",
-  "wills-road": "A pool and landscape pavilion that turns a generous rural site into a connected place for recreation, retreat and outdoor living.",
-  kingsford: "A multi-residential project composed around efficient planning, durable materials and a considered relationship to the street.",
 };
 
 const materialSchemes = [

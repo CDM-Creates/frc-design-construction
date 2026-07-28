@@ -12,7 +12,7 @@ A cinematic architecture website built from the supplied project drawing sets.
 
 ## Included
 
-- Scroll-driven Kingsford project story
+- Scroll-driven selected-work stories
 - Architectural drawing-to-streetscape transition
 - Responsive project case study
 - Transparent interactive project estimator

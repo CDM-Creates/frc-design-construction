@@ -821,8 +821,21 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .access-strip > span i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 4px rgba(23,34,29,.14); }
 .access-strip p { margin: 0; font: 10px/1.4 Georgia, serif; }
 .access-strip button { border: 0; background: transparent; color: inherit; cursor: help; font: 8px monospace; text-transform: uppercase; letter-spacing: .1em; }
+.data-connection-strip { min-height: 72px; padding: 0 6vw; display: grid; grid-template-columns: auto 1fr auto; gap: 34px; align-items: center; border-bottom: 1px solid rgba(23,34,29,.16); background: var(--acid); }
+.data-connection-strip > span { display: flex; gap: 10px; align-items: center; font: 9px monospace; text-transform: uppercase; letter-spacing: .1em; }
+.data-connection-strip > span i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 4px rgba(23,34,29,.14); }
+.data-connection-strip p { margin: 0; font: 9px/1.5 monospace; }
+.data-connection-strip > b { padding: 9px 12px; border: 1px solid rgba(23,34,29,.55); font: 8px monospace; text-transform: uppercase; letter-spacing: .1em; }
 .sim-workspace { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(420px, .92fr); border-bottom: 1px solid rgba(23,34,29,.16); }
 .sim-form { padding: 80px 6vw; border-right: 1px solid rgba(23,34,29,.16); }
+.sim-progress { margin-bottom: 64px; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid rgba(23,34,29,.18); }
+.sim-progress span { min-height: 52px; padding: 10px 12px; display: flex; gap: 9px; align-items: center; border-right: 1px solid rgba(23,34,29,.18); color: #7c847e; font: 8px monospace; text-transform: uppercase; letter-spacing: .08em; }
+.sim-progress span:last-child { border-right: 0; }
+.sim-progress i { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid rgba(23,34,29,.28); border-radius: 50%; font-style: normal; }
+.sim-progress span.active { background: #17211c; color: white; }
+.sim-progress span.active i { border-color: var(--acid); color: var(--acid); }
+.sim-progress span.done { background: var(--acid); color: var(--ink); }
+.sim-progress span.done i { border-color: var(--ink); }
 .sim-form-head > span, .result-heading > div > span, .law-check > header span, .success-plan > header span, .source-panel > div:first-child > span { color: #77820e; font: 8px monospace; text-transform: uppercase; letter-spacing: .15em; }
 .sim-form-head h2, .law-check > header h2, .success-plan > header h2, .source-panel h2 { margin: 20px 0 18px; font-size: clamp(42px, 5.2vw, 76px); line-height: .9; letter-spacing: -.06em; font-weight: 500; }
 .sim-form-head p { max-width: 580px; margin: 0; color: #667069; font: 14px/1.5 Georgia, serif; }
@@ -840,6 +853,11 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .sim-form input:focus, .sim-form select:focus, .sim-form textarea:focus { border-color: #77820e; box-shadow: inset 3px 0 0 var(--acid); }
 .sim-form .span-2 { grid-column: 1 / -1; }
 .address-entry-help { display: block; margin-top: 8px; color: #737d76; font: 8px/1.45 monospace; }
+.address-entry-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.address-entry-row input { height: 56px !important; border-right: 0 !important; font-size: 14px !important; }
+.address-entry-row button { min-width: 144px; padding: 0 18px; border: 1px solid #17211c; background: #17211c; color: white; cursor: pointer; font: 8px monospace; text-transform: uppercase; letter-spacing: .08em; }
+.address-entry-row button:hover:not(:disabled) { background: #77820e; }
+.address-entry-row button:disabled { border-color: rgba(23,34,29,.18); background: rgba(23,34,29,.08); color: #8a918c; cursor: not-allowed; }
 .address-autofill { min-height: 72px; padding: 15px 17px; display: flex; gap: 14px; align-items: center; border: 1px solid rgba(23,34,29,.22); background: rgba(255,255,255,.42); }
 .address-autofill > i { width: 31px; height: 31px; display: grid; place-items: center; flex: 0 0 31px; border: 1px solid currentColor; border-radius: 50%; font: 10px monospace; font-style: normal; }
 .address-autofill > div { display: flex; flex-direction: column; gap: 5px; }
@@ -850,6 +868,21 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .address-autofill.loading .analysis-spinner { border-color: rgba(23,34,29,.2); border-top-color: #77820e; }
 .address-autofill.failed { border-color: #a24b3f; background: #f1d9d4; }
 .address-autofill.failed > i { color: #a24b3f; }
+.live-property-card { border: 1px solid rgba(23,34,29,.28); background: #fff; box-shadow: inset 5px 0 0 var(--acid); }
+.live-property-card > header { min-height: 64px; padding: 13px 17px 13px 20px; display: flex; justify-content: space-between; gap: 18px; align-items: center; border-bottom: 1px solid rgba(23,34,29,.14); }
+.live-property-card > header > div { display: flex; gap: 12px; align-items: center; }
+.live-property-card > header i { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--acid); font: 10px monospace; font-style: normal; }
+.live-property-card > header span { display: flex; flex-direction: column; gap: 4px; }
+.live-property-card > header strong { font-size: 12px; }
+.live-property-card > header small, .live-property-card > header b { color: #68726b; font: 7px monospace; text-transform: uppercase; letter-spacing: .1em; }
+.live-property-card > header b { padding: 7px 9px; border: 1px solid #7d8913; color: #66720c; }
+.live-property-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+.live-property-grid > div { min-height: 94px; padding: 16px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid rgba(23,34,29,.12); border-bottom: 1px solid rgba(23,34,29,.12); }
+.live-property-grid > div:nth-child(4n) { border-right: 0; }
+.live-property-grid span { color: #758078; font: 7px monospace; text-transform: uppercase; letter-spacing: .09em; }
+.live-property-grid strong { font: 11px/1.35 Arial, sans-serif; }
+.live-property-grid small { color: #7a837d; font: 7px/1.35 monospace; }
+.live-property-card > footer { padding: 12px 16px 12px 20px; display: flex; justify-content: space-between; gap: 20px; color: #6d766f; font: 7px/1.45 monospace; }
 .sim-unit { position: relative; }
 .sim-unit input { padding-right: 42px !important; }
 .sim-unit b { position: absolute; top: 50%; right: 13px; transform: translateY(-50%); color: #778078; font: 8px monospace; }
@@ -1073,6 +1106,8 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   .sim-hero { min-height: 500px; gap: 50px; }
   .access-strip { padding: 18px 6vw; grid-template-columns: 1fr auto; }
   .access-strip p { display: none; }
+  .data-connection-strip { padding: 18px 6vw; grid-template-columns: 1fr auto; }
+  .data-connection-strip p { display: none; }
   .sim-workspace { grid-template-columns: 1fr; }
   .sim-form { border-right: 0; }
   .site-preview { position: relative; top: 0; height: auto; }
@@ -1092,9 +1127,21 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   .sim-hero { min-height: 480px; padding: 90px 22px 55px; }
   .sim-hero h1 { font-size: 55px; }
   .access-strip { padding: 15px 22px; }
+  .data-connection-strip { padding: 15px 22px; }
+  .data-connection-strip > b { display: none; }
   .sim-form, .site-preview, .result-heading, .project-story, .generated-house, .control-intelligence, .law-check, .success-plan, .source-panel, .subscription-preview { padding-right: 22px; padding-left: 22px; }
+  .sim-progress { margin-bottom: 48px; grid-template-columns: 1fr; }
+  .sim-progress span { border-right: 0; border-bottom: 1px solid rgba(23,34,29,.18); }
+  .sim-progress span:last-child { border-bottom: 0; }
   .sim-form fieldset { grid-template-columns: 1fr; }
   .sim-form .span-2 { grid-column: auto; }
+  .address-entry-row { grid-template-columns: 1fr; gap: 8px; }
+  .address-entry-row input { border-right: 1px solid rgba(23,34,29,.23) !important; }
+  .address-entry-row button { min-height: 48px; }
+  .live-property-grid { grid-template-columns: 1fr 1fr; }
+  .live-property-grid > div:nth-child(4n) { border-right: 1px solid rgba(23,34,29,.12); }
+  .live-property-grid > div:nth-child(2n) { border-right: 0; }
+  .live-property-card > footer { flex-direction: column; }
   .project-type { grid-template-columns: 1fr; }
   .site-preview { min-height: 650px; }
   .site-stats { grid-template-columns: 1fr; }

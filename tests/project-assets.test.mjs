@@ -11,7 +11,7 @@ test("every project image referenced by the home page is present and non-empty",
       .map((match) => match[1]),
   )];
 
-  assert.ok(paths.length >= 32, `Expected a complete project library, found only ${paths.length} referenced images.`);
+  assert.ok(paths.length >= 24, `Expected a complete project library, found only ${paths.length} referenced images.`);
   assert.doesNotMatch(page, /standardGallery/, "Project galleries must list their files explicitly.");
 
   for (const path of paths) {
@@ -29,7 +29,7 @@ test("every selected work has a public, non-empty drawing folio", async () => {
       .map((match) => match[1]),
   )];
 
-  assert.equal(folios.length, 10, "Expected one privacy-safe folio for every selected project.");
+  assert.equal(folios.length, 8, "Expected one privacy-safe folio for every selected project.");
 
   for (const path of folios) {
     const file = new URL(`../public${path}`, import.meta.url);
