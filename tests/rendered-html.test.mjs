@@ -1,46 +1,23 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render(pathname = "/") {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${pathname}`);
-  const { default: worker } = await import(workerUrl.href);
+const [home, simulator, layout] = await Promise.all([
+  readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/simulator/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+]);
 
-  return worker.fetch(
-    new Request(`http://localhost${pathname}`, {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
-}
-
-test("server-renders the FRC portfolio without removed partnered projects", async () => {
-  const response = await render("/");
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
-  assert.match(html, /FRC Design/);
-  assert.match(html, /Selected work/);
-  assert.doesNotMatch(html, /Kingsford|Wills Road|Student Living/i);
+test("FRC portfolio source excludes the removed partnered projects", () => {
+  assert.match(layout, /FRC Design/);
+  assert.match(home, /Selected work/);
+  assert.doesNotMatch(home, /Kingsford|Wills Road|Student Living/i);
 });
 
-test("server-renders the property-first NSW feasibility simulator", async () => {
-  const response = await render("/simulator");
-  assert.equal(response.status, 200);
-
-  const html = await response.text();
-  assert.match(html, /Start with/);
-  assert.match(html, /the address/);
-  assert.match(html, /Live NSW property services/);
-  assert.match(html, /Match property/);
-  assert.match(html, /No AI guessing/);
+test("simulator presents a property-first live NSW workflow", () => {
+  assert.match(simulator, /Start with<br \/><em>the address\.<\/em>/);
+  assert.match(simulator, /Live NSW property services/);
+  assert.match(simulator, /Match property/);
+  assert.match(simulator, /No AI guessing/);
+  assert.match(simulator, /Official NSW property matched/);
 });

@@ -1,6 +1,32 @@
 import { calculateRegulatoryScreen } from "../../simulator/regulatory-engine";
 
-type ArcFeature = { attributes?: Record<string, unknown>; geometry?: { rings?: number[][][] } };
+type ArcFeature = {
+  attributes?: Record<string, unknown>;
+  geometry?: { rings?: number[][][] };
+};
+
+type ArcResponse = {
+  features?: ArcFeature[];
+  error?: { code?: number; message?: string; details?: string[] };
+};
+
+type AddressMatch = {
+  addressPoint?: { centreX?: string | number; centreY?: string | number };
+  propid?: string | number;
+  houseNumberString?: string | number;
+  roadName?: string;
+  roadType?: string;
+  suburbName?: string;
+  postCode?: string | number;
+  council?: string;
+  addressId?: string | number;
+  addressID?: string | number;
+  id?: string | number;
+};
+
+type AddressServiceResponse = {
+  addressResult?: { addresses?: AddressMatch[] };
+};
 
 const ADDRESS_SERVICE = "https://mapsq.six.nsw.gov.au/services/public/Address_Location";
 const PLANNING_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/services/ePlanning/Planning_Portal_Principal_Planning/MapServer";
@@ -26,10 +52,38 @@ function parseAddress(input: string) {
   return { houseNumber, roadName, roadType: roadTypes[rawRoadType.toLowerCase()] ?? rawRoadType, suburb, postcode };
 }
 
+function positiveNumber(value: unknown) {
+  const numeric = typeof value === "string" ? Number(value.replace(/,/g, "")) : Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function featureId(attributes?: Record<string, unknown> | null) {
+  if (!attributes) return null;
+  const value = attributes.OBJECTID ?? attributes.ObjectID ?? attributes.objectid ?? attributes.FID ?? attributes.id;
+  return value === undefined || value === null ? null : String(value);
+}
+
 async function getJson(url: string) {
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error(`NSW service returned ${response.status}`);
-  return response.json();
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`NSW service returned HTTP ${response.status}`);
+  const data = await response.json() as ArcResponse & Record<string, unknown>;
+  if (data.error) {
+    const details = [data.error.message, ...(data.error.details ?? [])].filter(Boolean).join(" · ");
+    throw new Error(`NSW ArcGIS service error ${data.error.code ?? ""}${details ? `: ${details}` : ""}`.trim());
+  }
+  return data;
+}
+
+async function safeGetJson(url: string, label: string) {
+  try {
+    return await getJson(url);
+  } catch (error) {
+    console.warn(`[site-analysis] Optional ${label} lookup failed`, error);
+    return null;
+  }
 }
 
 async function queryPlanningLayer(layer: number, longitude: number, latitude: number) {
@@ -44,6 +98,47 @@ async function queryPlanningLayer(layer: number, longitude: number, latitude: nu
   });
   const data = await getJson(`${PLANNING_SERVICE}/${layer}/query?${params}`);
   return (data.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
+}
+
+async function safePlanningLayer(layer: number, label: string, longitude: number, latitude: number) {
+  try {
+    return await queryPlanningLayer(layer, longitude, latitude);
+  } catch (error) {
+    console.warn(`[site-analysis] Optional ${label} layer ${layer} failed`, error);
+    return null;
+  }
+}
+
+function signedRingAreaSqm(ring: number[][]) {
+  const points = ring.filter(([longitude, latitude]) => Number.isFinite(longitude) && Number.isFinite(latitude));
+  if (points.length < 4) return 0;
+  const originLongitude = points.reduce((sum, [longitude]) => sum + longitude, 0) / points.length;
+  const originLatitude = points.reduce((sum, [, latitude]) => sum + latitude, 0) / points.length;
+  const latitudeRadians = originLatitude * Math.PI / 180;
+  const metres = points.map(([longitude, latitude]) => ({
+    x: (longitude - originLongitude) * 111320 * Math.cos(latitudeRadians),
+    y: (latitude - originLatitude) * 110540,
+  }));
+  let twiceArea = 0;
+  for (let index = 0; index < metres.length; index += 1) {
+    const current = metres[index];
+    const next = metres[(index + 1) % metres.length];
+    twiceArea += current.x * next.y - next.x * current.y;
+  }
+  return twiceArea / 2;
+}
+
+function geometryAreaSqm(rings: number[][][]) {
+  if (!rings.length) return null;
+  const signedArea = rings.reduce((total, ring) => total + signedRingAreaSqm(ring), 0);
+  const area = Math.abs(signedArea);
+  return Number.isFinite(area) && area > 0 ? Math.round(area * 10) / 10 : null;
+}
+
+function largestRing(rings: number[][][]) {
+  return rings
+    .map((ring) => ({ ring, area: Math.abs(signedRingAreaSqm(ring)) }))
+    .sort((first, second) => second.area - first.area)[0]?.ring ?? [];
 }
 
 function parcelDimensions(ring: number[][]) {
@@ -76,7 +171,18 @@ function parcelDimensions(ring: number[][]) {
   return {
     frontage: Math.round(Math.min(best.width, best.depth) * 10) / 10,
     depth: Math.round(Math.max(best.width, best.depth) * 10) / 10,
-    source: "Approximate dimensions calculated from the mapped NSW parcel boundary; confirm against survey.",
+    source: "Approximate dimensions calculated from the selected NSW cadastral lot boundary; confirm against deposited plan and registered survey.",
+  };
+}
+
+function planningField(value: unknown, sourceLayer: string, attributes: Record<string, unknown> | null, status?: string) {
+  return {
+    value: value ?? null,
+    sourceName: "NSW Planning Portal Principal Planning layers",
+    sourceLayer,
+    sourceFeatureId: featureId(attributes),
+    retrievedAt: new Date().toISOString(),
+    status: status ?? (value === null || value === undefined || value === "" ? "not_mapped" : "mapped"),
   };
 }
 
@@ -227,7 +333,11 @@ export async function POST(request: Request) {
     const address = inputs.address ?? `${inputs.streetAddress ?? ""}, ${inputs.suburb ?? ""} NSW ${inputs.postcode ?? ""}`;
     const parsed = parseAddress(address);
     if (!parsed) {
-      return Response.json({ error: "Enter a complete NSW street address, suburb and four-digit postcode so the official parcel can be matched privately." }, { status: 400 });
+      console.warn("[site-analysis] Rejected incomplete address", { address, suburb: inputs.suburb, postcode: inputs.postcode });
+      return Response.json({
+        error: "Enter the street address, NSW suburb and four-digit postcode so the official parcel can be matched privately.",
+        ...(process.env.NODE_ENV !== "production" ? { details: `Could not parse: ${address}` } : {}),
+      }, { status: 400 });
     }
 
     const addressParams = new URLSearchParams({
@@ -238,22 +348,28 @@ export async function POST(request: Request) {
       projection: "EPSG:4326",
     });
     if (parsed.postcode) addressParams.set("postCode", parsed.postcode);
-    const addressData = await getJson(`${ADDRESS_SERVICE}?${addressParams}`);
+    const addressData = await getJson(`${ADDRESS_SERVICE}?${addressParams}`) as AddressServiceResponse;
     const match = addressData.addressResult?.addresses?.[0];
-    if (!match) return Response.json({ error: "No exact NSW address match was returned. Check the street type and suburb." }, { status: 404 });
+    if (!match) {
+      console.warn("[site-analysis] No NSW address match", { parsed });
+      return Response.json({ error: "No exact NSW address match was returned. Check the street type, suburb and postcode." }, { status: 404 });
+    }
     const matchedPostcode = String(match.postCode ?? "").replace(/\D/g, "").slice(0, 4);
     if (matchedPostcode && matchedPostcode !== parsed.postcode) {
       return Response.json({ error: "The NSW address service returned a different postcode. Check the complete address and try again." }, { status: 404 });
     }
 
-    const longitude = Number(match.addressPoint.centreX);
-    const latitude = Number(match.addressPoint.centreY);
-    if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !Number.isFinite(Number(match.propid))) {
-      return Response.json({ error: "The address was found, but no usable NSW parcel identifier was returned." }, { status: 422 });
+    const longitude = Number(match.addressPoint?.centreX);
+    const latitude = Number(match.addressPoint?.centreY);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      throw new Error("The NSW address match did not include usable coordinates.");
     }
+
+    const rawPropertyId = String(match.propid ?? "").trim();
+    const propertyWhere = /^\d+$/.test(rawPropertyId) ? `propid=${rawPropertyId}` : "1=0";
     const propertyParams = new URLSearchParams({
-      where: `propid=${Number(match.propid)}`,
-      outFields: "propid,address,Shape__Area",
+      where: propertyWhere,
+      outFields: "propid,address,Shape__Area,OBJECTID",
       returnGeometry: "true",
       outSR: "4326",
       f: "json",
@@ -264,69 +380,144 @@ export async function POST(request: Request) {
       geometryType: "esriGeometryPoint",
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
-      outFields: "lotnumber,sectionnumber,planlabel,planlotarea,lotidstring",
+      outFields: "*",
       returnGeometry: "true",
       outSR: "4326",
       f: "json",
     });
 
-    const [propertyData, lotData] = await Promise.all([
-      getJson(`${PROPERTY_SERVICE}/query?${propertyParams}`),
-      getJson(`${LOT_SERVICE}/query?${lotParams}`),
+    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize] = await Promise.all([
+      safeGetJson(`${PROPERTY_SERVICE}/query?${propertyParams}`, "property aggregate"),
+      safeGetJson(`${LOT_SERVICE}/query?${lotParams}`, "cadastral lot"),
+      safePlanningLayer(11, "floor-space ratio", longitude, latitude),
+      safePlanningLayer(14, "building height", longitude, latitude),
+      safePlanningLayer(16, "heritage", longitude, latitude),
+      safePlanningLayer(19, "zoning", longitude, latitude),
+      safePlanningLayer(22, "minimum lot size", longitude, latitude),
     ]);
-    const layerResults = await Promise.allSettled([
-      queryPlanningLayer(11, longitude, latitude),
-      queryPlanningLayer(14, longitude, latitude),
-      queryPlanningLayer(16, longitude, latitude),
-      queryPlanningLayer(19, longitude, latitude),
-      queryPlanningLayer(22, longitude, latitude),
-    ]);
-    const layerValue = (result: PromiseSettledResult<Record<string, unknown> | null>) => (
-      result.status === "fulfilled" ? result.value : null
-    );
-    const layerStatus = (result: PromiseSettledResult<Record<string, unknown> | null>) => (
-      result.status === "rejected" ? "unavailable" : result.value ? "mapped" : "not-mapped"
-    );
-    const [fsrResult, heightResult, heritageResult, zoningResult, lotSizeResult] = layerResults;
-    const fsr = layerValue(fsrResult);
-    const height = layerValue(heightResult);
-    const heritage = layerValue(heritageResult);
-    const zoning = layerValue(zoningResult);
-    const lotSize = layerValue(lotSizeResult);
 
-    const property = propertyData.features?.[0] as ArcFeature | undefined;
-    const lotFeature = lotData.features?.[0] as ArcFeature | undefined;
-    const lot = lotFeature?.attributes;
-    const zoneCode = String(zoning?.SYM_CODE ?? "Not mapped");
-    const lotArea = Number(lot?.planlotarea ?? 0);
-    const propertyArea = Number(property?.attributes?.Shape__Area ?? 0);
-    const area = Number.isFinite(lotArea) && lotArea > 0 ? lotArea : Number.isFinite(propertyArea) && propertyArea > 0 ? propertyArea : 0;
-    const boundary = lotFeature?.geometry?.rings?.[0] ?? property?.geometry?.rings?.[0] ?? [];
+    const property = propertyData?.features?.[0] as ArcFeature | undefined;
+    const lotFeatures = (lotData?.features ?? []) as ArcFeature[];
+    const lotFeature = lotFeatures
+      .filter((feature) => feature.attributes)
+      .sort((first, second) => {
+        const firstComplete = first.attributes?.lotnumber && first.attributes?.planlabel ? 0 : 1;
+        const secondComplete = second.attributes?.lotnumber && second.attributes?.planlabel ? 0 : 1;
+        if (firstComplete !== secondComplete) return firstComplete - secondComplete;
+        const firstArea = positiveNumber(first.attributes?.planlotarea) ?? geometryAreaSqm(first.geometry?.rings ?? []) ?? Number.MAX_SAFE_INTEGER;
+        const secondArea = positiveNumber(second.attributes?.planlotarea) ?? geometryAreaSqm(second.geometry?.rings ?? []) ?? Number.MAX_SAFE_INTEGER;
+        return firstArea - secondArea;
+      })[0];
+    const lot = lotFeature?.attributes ?? null;
+    const parcelRings = lotFeature?.geometry?.rings ?? [];
+    const boundary = largestRing(parcelRings);
     const dimensions = parcelDimensions(boundary);
-    const mappedHeight = height?.MAX_B_H ? Number(height.MAX_B_H) : null;
-    const mappedFsr = fsr?.FSR ? Number(fsr.FSR) : null;
+
+    const serviceReportedAreaSqm = positiveNumber(lot?.planlotarea);
+    const calculatedGeometryAreaSqm = geometryAreaSqm(parcelRings);
+    const propertyAggregateAreaSqm = positiveNumber(property?.attributes?.Shape__Area);
+    const mappedParcelAreaSqm = serviceReportedAreaSqm ?? calculatedGeometryAreaSqm;
+    const areaDifferenceSqm = serviceReportedAreaSqm && calculatedGeometryAreaSqm
+      ? Math.abs(serviceReportedAreaSqm - calculatedGeometryAreaSqm)
+      : null;
+    const areaDifferencePercent = areaDifferenceSqm !== null && serviceReportedAreaSqm
+      ? Math.round((areaDifferenceSqm / serviceReportedAreaSqm) * 1000) / 10
+      : null;
+    const areaRequiresVerification = areaDifferenceSqm !== null
+      && areaDifferenceSqm > Math.max(5, Math.min(serviceReportedAreaSqm ?? 0, calculatedGeometryAreaSqm ?? 0) * 0.02);
+    const areaStatus = mappedParcelAreaSqm
+      ? areaRequiresVerification ? "requires_verification" : "mapped"
+      : "unavailable";
+
+    const zoneCode = String(zoning?.SYM_CODE ?? "Not mapped");
+    const mappedHeight = positiveNumber(height?.MAX_B_H);
+    const mappedFsr = positiveNumber(fsr?.FSR);
     const lotNumber = String(lot?.lotnumber ?? "").trim();
     const sectionNumber = String(lot?.sectionnumber ?? "").trim();
     const planLabel = String(lot?.planlabel ?? "").trim();
+    const parcelId = String(lot?.lotidstring ?? featureId(lot) ?? "").trim() || null;
     const lotDp = lotNumber && planLabel ? `Lot ${lotNumber}${sectionNumber ? `, Section ${sectionNumber}` : ""} / ${planLabel}` : null;
-    const streetAddress = `${match.houseNumberString} ${match.roadName} ${match.roadType}`.replace(/\s+/g, " ").trim();
+    const streetAddress = `${match.houseNumberString ?? parsed.houseNumber} ${match.roadName ?? parsed.roadName} ${match.roadType ?? parsed.roadType}`.replace(/\s+/g, " ").trim();
     const suburb = String(match.suburbName ?? parsed.suburb).trim();
     const postcode = matchedPostcode || parsed.postcode;
-    const analysedAt = new Date().toISOString();
+    const fullAddress = [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
+    const privacyLabel = [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ") || "Private NSW property";
+    const council = String(match.council ?? "Not returned");
+    const matchedAt = new Date().toISOString();
+    const addressId = String(match.addressId ?? match.addressID ?? match.id ?? rawPropertyId ?? "").trim() || null;
+
+    console.info("[site-analysis] Matched cadastral parcel", {
+      fullAddress,
+      propertyId: rawPropertyId || null,
+      parcelId,
+      lotDp,
+      serviceReportedAreaSqm,
+      calculatedGeometryAreaSqm,
+      propertyAggregateAreaSqm,
+      areaStatus,
+      parcelRingCount: parcelRings.length,
+      parcelPointCount: boundary.length,
+    });
+
     return Response.json({
-      matchedAddress: [streetAddress, suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", "),
+      matchStatus: "matched",
+      matchedAt,
+      matchedAddress: fullAddress,
+      fullAddress,
+      privacyLabel,
       addressDetails: { streetAddress, suburb, postcode },
-      council: match.council,
+      identity: {
+        fullAddress,
+        privacyLabel,
+        suburb,
+        postcode,
+        lot: lotNumber || null,
+        section: sectionNumber || null,
+        depositedPlan: planLabel || null,
+        council,
+        parcelId,
+        addressId,
+        propertyId: rawPropertyId || null,
+        matchedAt,
+        matchStatus: "matched",
+      },
+      council,
       coordinates: { longitude, latitude },
-      propertyId: match.propid,
-      area: area ? Math.round(area) : null,
+      propertyId: rawPropertyId || null,
+      parcelId,
+      addressId,
+      lot: lotNumber || null,
+      section: sectionNumber || null,
+      depositedPlan: planLabel || null,
+      area: mappedParcelAreaSqm ? Math.round(mappedParcelAreaSqm) : null,
+      mappedParcelAreaSqm: mappedParcelAreaSqm ? Math.round(mappedParcelAreaSqm * 10) / 10 : null,
+      clientSuppliedAreaSqm: positiveNumber(inputs.knownLandArea),
+      surveyedAreaSqm: null,
+      serviceReportedAreaSqm,
+      calculatedGeometryAreaSqm,
+      propertyAggregateAreaSqm,
+      areaStatus,
+      parcelArea: {
+        mappedParcelAreaSqm: mappedParcelAreaSqm ? Math.round(mappedParcelAreaSqm * 10) / 10 : null,
+        serviceReportedAreaSqm,
+        calculatedGeometryAreaSqm,
+        propertyAggregateAreaSqm,
+        differenceSqm: areaDifferenceSqm !== null ? Math.round(areaDifferenceSqm * 10) / 10 : null,
+        differencePercent: areaDifferencePercent,
+        status: areaStatus,
+        selectedSource: serviceReportedAreaSqm ? "NSW cadastral lot area attribute" : calculatedGeometryAreaSqm ? "Calculated from selected cadastral lot geometry" : null,
+        note: areaRequiresVerification
+          ? "The NSW lot-area attribute and calculated cadastral geometry differ materially. Both values are shown and must be verified."
+          : "Area is taken only from the selected NSW cadastral lot, not the broader property aggregate polygon.",
+      },
       boundary,
+      parcelGeometry: parcelRings,
       lotDp,
       siteDimensions: dimensions,
       controls: {
         zone: zoneCode,
-        zoneName: zoning?.LAY_CLASS ?? "Not mapped",
-        lep: zoning?.EPI_NAME ?? height?.EPI_NAME ?? fsr?.EPI_NAME ?? "Not mapped",
+        zoneName: zoning?.LAY_CLASS ? String(zoning.LAY_CLASS) : "Not mapped",
+        lep: String(zoning?.EPI_NAME ?? height?.EPI_NAME ?? fsr?.EPI_NAME ?? "Not mapped"),
         maxHeight: height?.MAX_B_H ? `${height.MAX_B_H} ${height.UNITS ?? "m"}` : null,
         fsr: fsr?.FSR ? `${fsr.FSR}:1` : null,
         minimumLotSize: lotSize?.LOT_SIZE ? `${lotSize.LOT_SIZE} ${lotSize.UNITS ?? "m²"}` : null,
@@ -334,7 +525,7 @@ export async function POST(request: Request) {
         numeric: {
           maxHeight: mappedHeight,
           fsr: mappedFsr,
-          minimumLotSize: lotSize?.LOT_SIZE ? Number(lotSize.LOT_SIZE) : null,
+          minimumLotSize: positiveNumber(lotSize?.LOT_SIZE),
         },
         provenance: {
           zone: `${PLANNING_SERVICE}/19`,
@@ -344,8 +535,39 @@ export async function POST(request: Request) {
           minimumLotSize: `${PLANNING_SERVICE}/22`,
         },
       },
+      planningFields: {
+        council: {
+          value: council,
+          sourceName: "NSW Address Location service",
+          sourceLayer: "Address result",
+          sourceFeatureId: rawPropertyId || null,
+          retrievedAt: matchedAt,
+          status: council === "Not returned" ? "not_mapped" : "mapped",
+        },
+        lotDp: {
+          value: lotDp,
+          sourceName: "NSW Land Parcel Property Theme",
+          sourceLayer: "Cadastral lot layer 8",
+          sourceFeatureId: parcelId,
+          retrievedAt: matchedAt,
+          status: lotDp ? "mapped" : "not_mapped",
+        },
+        parcelArea: {
+          value: mappedParcelAreaSqm,
+          sourceName: "NSW Land Parcel Property Theme",
+          sourceLayer: "Cadastral lot layer 8",
+          sourceFeatureId: parcelId,
+          retrievedAt: matchedAt,
+          status: areaStatus,
+        },
+        zone: planningField(zoneCode === "Not mapped" ? null : zoneCode, "Zoning layer 19", zoning),
+        height: planningField(height?.MAX_B_H ?? null, "Building height layer 14", height),
+        fsr: planningField(fsr?.FSR ?? null, "Floor-space ratio layer 11", fsr),
+        minimumLotSize: planningField(lotSize?.LOT_SIZE ?? null, "Minimum lot size layer 22", lotSize),
+        heritage: planningField(heritage ? heritage.H_NAME ?? heritage.LAY_CLASS ?? "Mapped" : null, "Heritage layer 16", heritage, heritage ? "mapped" : "not_mapped"),
+      },
       opportunities: opportunitiesForZone(zoneCode),
-      guidance: projectGuidance(zoneCode, Boolean(heritage), inputs, mappedHeight, mappedFsr, String(match.council ?? ""), area || null),
+      guidance: projectGuidance(zoneCode, Boolean(heritage), inputs, mappedHeight, mappedFsr, council, mappedParcelAreaSqm),
       constraints: [
         { name: "Building height", value: height?.MAX_B_H ? `${height.MAX_B_H} ${height.UNITS ?? "m"}` : "No numeric height mapped", status: height?.MAX_B_H ? "mapped" : "review" },
         { name: "Floor-space ratio", value: fsr?.FSR ? `${fsr.FSR}:1` : "No FSR mapped", status: fsr?.FSR ? "mapped" : "review" },
@@ -356,20 +578,30 @@ export async function POST(request: Request) {
       ],
       source: {
         planningPortal: "https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address",
+        cadastralLotLayer: LOT_SERVICE,
         dataAttribution: "NSW Spatial Services and NSW Department of Planning, Housing and Infrastructure",
-        retrievedAt: analysedAt,
-        areaSource: lotArea > 0 ? "Selected NSW cadastral lot" : propertyArea > 0 ? "NSW property geometry" : "Unavailable",
+        retrievedAt: matchedAt,
+        areaSource: serviceReportedAreaSqm
+          ? "Selected NSW cadastral lot"
+          : calculatedGeometryAreaSqm
+            ? "Calculated cadastral geometry"
+            : "Unavailable",
         layerStatus: {
-          zoning: layerStatus(zoningResult),
-          height: layerStatus(heightResult),
-          floorSpaceRatio: layerStatus(fsrResult),
-          heritage: layerStatus(heritageResult),
-          minimumLotSize: layerStatus(lotSizeResult),
+          zoning: zoning ? "mapped" : "not-mapped",
+          height: height ? "mapped" : "not-mapped",
+          floorSpaceRatio: fsr ? "mapped" : "not-mapped",
+          heritage: heritage ? "mapped" : "not-mapped",
+          minimumLotSize: lotSize ? "mapped" : "not-mapped",
         },
       },
-      analysedAt,
+      analysedAt: matchedAt,
     });
-  } catch {
-    return Response.json({ error: "The NSW data services did not complete the analysis. Please try again shortly." }, { status: 502 });
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    console.error("[site-analysis] Live property analysis failed", caught);
+    return Response.json({
+      error: "The NSW address was valid, but one of the live NSW data services did not complete the analysis. Please try again shortly.",
+      ...(process.env.NODE_ENV !== "production" ? { details: message } : {}),
+    }, { status: 502 });
   }
 }

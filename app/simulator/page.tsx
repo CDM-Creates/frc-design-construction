@@ -5,13 +5,44 @@ import Link from "next/link";
 import { getSimulatorEntitlement } from "./access";
 import { buildProjectConcept, type PlanningSnapshot, type ProjectType } from "./project-engine";
 import { calculateRegulatoryScreen } from "./regulatory-engine";
+import { mergeProjectData, readStoredProject, writeStoredProject, type CanonicalProject } from "../lib/project-data";
 
 type SiteAnalysis = PlanningSnapshot & {
+  matchStatus?: "matched";
+  matchedAt?: string;
   matchedAddress: string;
+  fullAddress?: string;
+  privacyLabel?: string;
   addressDetails?: { streetAddress: string; suburb: string; postcode: string };
+  identity?: {
+    lot?: string | null;
+    section?: string | null;
+    depositedPlan?: string | null;
+    parcelId?: string | null;
+    propertyId?: string | null;
+  };
   council: string;
   boundary: number[][];
+  parcelGeometry?: number[][][];
+  parcelId?: string | null;
   lotDp?: string | null;
+  mappedParcelAreaSqm?: number | null;
+  serviceReportedAreaSqm?: number | null;
+  calculatedGeometryAreaSqm?: number | null;
+  clientSuppliedAreaSqm?: number | null;
+  surveyedAreaSqm?: number | null;
+  areaStatus?: "mapped" | "requires_verification" | "unavailable";
+  parcelArea?: {
+    mappedParcelAreaSqm: number | null;
+    serviceReportedAreaSqm: number | null;
+    calculatedGeometryAreaSqm: number | null;
+    propertyAggregateAreaSqm: number | null;
+    differenceSqm: number | null;
+    differencePercent: number | null;
+    status: "mapped" | "requires_verification" | "unavailable";
+    selectedSource: string | null;
+    note: string;
+  };
   siteDimensions?: { frontage: number; depth: number; source: string } | null;
   guidance: {
     verdict: string;
@@ -66,6 +97,28 @@ type SimulatorForm = {
   timing: string;
   mustHaves: string;
   description: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  preferredContact: string;
+  architecturalStyle: string;
+  interiorStyle: string;
+  exteriorMaterials: string;
+  interiorMaterials: string;
+  colourPreferences: string;
+  landscaping: string;
+  naturalLight: string;
+  privacy: string;
+  views: string;
+  sustainabilityGoals: string;
+  accessibilityRequirements: string;
+  lifestyleRequirements: string;
+  inspirationLinks: string;
+  additionalInstructions: string;
+  preferredStartDate: string;
+  completionGoal: string;
+  approvalStatus: string;
+  financeStatus: string;
 };
 
 const initialForm: SimulatorForm = {
@@ -95,6 +148,28 @@ const initialForm: SimulatorForm = {
   timing: "Within 12–18 months",
   mustHaves: "North-facing living, flexible study, covered outdoor room",
   description: "",
+  clientName: "",
+  clientEmail: "",
+  clientPhone: "",
+  preferredContact: "Email",
+  architecturalStyle: "Contemporary",
+  interiorStyle: "Warm contemporary",
+  exteriorMaterials: "",
+  interiorMaterials: "",
+  colourPreferences: "",
+  landscaping: "",
+  naturalLight: "North-facing living and balanced daylight",
+  privacy: "Screen views to neighbouring private areas",
+  views: "",
+  sustainabilityGoals: "Passive solar design, cross-ventilation, efficient all-electric services",
+  accessibilityRequirements: "",
+  lifestyleRequirements: "",
+  inspirationLinks: "",
+  additionalInstructions: "",
+  preferredStartDate: "",
+  completionGoal: "",
+  approvalStatus: "Not started",
+  financeStatus: "Not supplied",
 };
 
 const projectNames: Record<ProjectType, string> = {
@@ -137,6 +212,8 @@ const liveControlValue = (
   missingLabel: string,
 ) => value ?? (status === "unavailable" ? "Live layer unavailable — retry" : missingLabel);
 
+const mappedAreaFor = (result: SiteAnalysis | null) => result?.mappedParcelAreaSqm ?? result?.parcelArea?.mappedParcelAreaSqm ?? result?.area ?? null;
+
 export default function ProjectSimulator() {
   const entitlement = getSimulatorEntitlement();
   const [form, setForm] = useState<SimulatorForm>(initialForm);
@@ -146,9 +223,81 @@ export default function ProjectSimulator() {
   const [addressLoading, setAddressLoading] = useState(false);
   const [addressError, setAddressError] = useState("");
   const [error, setError] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [confirmed, setConfirmed] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<"idle" | "generating" | "error">("idle");
+  const [generationError, setGenerationError] = useState("");
   const lastResolvedAddress = useRef("");
   const privateStreetAddress = useRef("");
   const lookupRequestId = useRef(0);
+  const projectHydrated = useRef(false);
+
+  useEffect(() => {
+    if (projectHydrated.current) return;
+    const stored = readStoredProject();
+    const hydrate = window.setTimeout(() => {
+      projectHydrated.current = true;
+      setForm((current) => ({
+      ...current,
+      streetAddress: stored.property.address || current.streetAddress,
+      suburb: stored.property.suburb || current.suburb,
+      postcode: stored.property.postcode || current.postcode,
+      lotDp: stored.property.lot_details || current.lotDp,
+      knownLandArea: Number(stored.property.site_area) || current.knownLandArea,
+      frontage: Number(stored.property.site_width) || current.frontage,
+      depth: Number(stored.property.site_depth) || current.depth,
+      lotType: (["standard", "corner", "battleaxe"].includes(stored.property.lot_type) ? stored.property.lot_type : current.lotType) as SimulatorForm["lotType"],
+      slope: (["flat", "gentle", "steep"].includes(stored.property.slope) ? stored.property.slope : current.slope) as SimulatorForm["slope"],
+      orientation: (["north-rear", "north-front", "north-side", "unknown"].includes(stored.property.orientation) ? stored.property.orientation : current.orientation) as SimulatorForm["orientation"],
+      existingDwelling: Boolean(stored.property.existing_structures),
+      projectGoal: (["home", "dual", "renovation"].includes(stored.ambition.project_type) ? stored.ambition.project_type : current.projectGoal) as ProjectType,
+      storeys: Number(stored.ambition.storeys) || current.storeys,
+      bedrooms: Number(stored.ambition.bedrooms) || current.bedrooms,
+      bathrooms: Number(stored.ambition.bathrooms) || current.bathrooms,
+      parking: Number(stored.ambition.parking) || current.parking,
+      budget: stored.roadmap.budget || current.budget,
+      timing: stored.roadmap.completion_goal || current.timing,
+      description: stored.simulation.client_description || current.description,
+      clientName: stored.client.name,
+      clientEmail: stored.client.email,
+      clientPhone: stored.client.phone,
+      preferredContact: stored.client.preferred_contact_method || current.preferredContact,
+      architecturalStyle: stored.ambition.architectural_style || current.architecturalStyle,
+      interiorStyle: stored.ambition.interior_style || current.interiorStyle,
+      exteriorMaterials: stored.simulation.exterior_materials,
+      interiorMaterials: stored.simulation.interior_materials,
+      colourPreferences: stored.simulation.colour_preferences,
+      landscaping: stored.simulation.landscaping,
+      naturalLight: stored.simulation.natural_light || current.naturalLight,
+      privacy: stored.simulation.privacy || current.privacy,
+      views: stored.simulation.views,
+      sustainabilityGoals: stored.ambition.sustainability_goals.join(", ") || current.sustainabilityGoals,
+      accessibilityRequirements: stored.ambition.accessibility_requirements,
+      lifestyleRequirements: stored.ambition.lifestyle_requirements,
+      inspirationLinks: stored.simulation.inspiration_links.join("\n"),
+      additionalInstructions: stored.simulation.additional_instructions,
+      preferredStartDate: stored.roadmap.preferred_start_date,
+      completionGoal: stored.roadmap.completion_goal,
+      approvalStatus: stored.roadmap.approval_status || current.approvalStatus,
+      financeStatus: stored.roadmap.finance_status || current.financeStatus,
+      }));
+    }, 0);
+    return () => window.clearTimeout(hydrate);
+  }, []);
+
+  useEffect(() => {
+    if (!projectHydrated.current) return;
+    const stored = readStoredProject();
+    const address = privateStreetAddress.current || (form.streetAddress.startsWith("Private") ? stored.property.address : form.streetAddress);
+    const next = mergeProjectData(stored, {
+      client: { ...stored.client, name: form.clientName, email: form.clientEmail, phone: form.clientPhone, preferred_contact_method: form.preferredContact },
+      property: { ...stored.property, address, suburb: form.suburb, postcode: form.postcode, lot_details: form.lotDp, site_width: String(form.frontage || ""), site_depth: String(form.depth || ""), site_area: String(form.knownLandArea || ""), lot_type: form.lotType, slope: form.slope, orientation: form.orientation, existing_structures: form.existingDwelling ? "Existing dwelling" : "" },
+      ambition: { ...stored.ambition, project_type: form.projectGoal, storeys: String(form.storeys), bedrooms: String(form.bedrooms), bathrooms: String(form.bathrooms), parking: String(form.parking), architectural_style: form.architecturalStyle, interior_style: form.interiorStyle, sustainability_goals: form.sustainabilityGoals.split(",").map((item) => item.trim()).filter(Boolean), accessibility_requirements: form.accessibilityRequirements, lifestyle_requirements: form.lifestyleRequirements },
+      roadmap: { ...stored.roadmap, budget: form.budget, estimated_construction_cost: String(form.estimatedCost || ""), preferred_start_date: form.preferredStartDate, completion_goal: form.completionGoal || form.timing, approval_status: form.approvalStatus, finance_status: form.financeStatus },
+      simulation: { ...stored.simulation, client_description: form.description, exterior_materials: form.exteriorMaterials, interior_materials: form.interiorMaterials, colour_preferences: form.colourPreferences, roof_style: form.roofForm, landscaping: form.landscaping, pool: form.poolCapacity > 0 ? `${form.poolCapacity} L pool or spa` : "", garage_or_carport: `${form.parking} car spaces`, natural_light: form.naturalLight, privacy: form.privacy, views: form.views, inspiration_links: form.inspirationLinks.split(/\n|,/).map((item) => item.trim()).filter(Boolean), additional_instructions: form.additionalInstructions },
+    });
+    writeStoredProject(next);
+  }, [form]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -210,14 +359,15 @@ export default function ProjectSimulator() {
       if (requestId !== lookupRequestId.current || signal?.aborted) return;
 
       const safeLocation = privateLocation(result);
-      privateStreetAddress.current = result.matchedAddress;
+      privateStreetAddress.current = result.fullAddress || result.matchedAddress;
       lastResolvedAddress.current = query.toUpperCase();
       setForm((current) => ({
         ...current,
         suburb: result.addressDetails?.suburb ?? current.suburb,
         postcode: result.addressDetails?.postcode ?? current.postcode,
         lotDp: result.lotDp ?? current.lotDp,
-        knownLandArea: result.area ?? current.knownLandArea,
+        // Client-entered area remains separate from the mapped cadastral result.
+        knownLandArea: current.knownLandArea,
         frontage: result.siteDimensions?.frontage ?? current.frontage,
         depth: result.siteDimensions?.depth ?? current.depth,
       }));
@@ -250,14 +400,20 @@ export default function ProjectSimulator() {
   }, [form.streetAddress, lookupAddress]);
 
   const update = <K extends keyof SimulatorForm>(key: K, value: SimulatorForm[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    const changesPropertyIdentity = key === "streetAddress" || key === "suburb" || key === "postcode";
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(changesPropertyIdentity ? { lotDp: "" } : {}),
+    }));
     setAnalysis(null);
-    if (key === "streetAddress") {
+    if (changesPropertyIdentity) {
       lookupRequestId.current += 1;
       privateStreetAddress.current = "";
       lastResolvedAddress.current = "";
       setMatchedProperty(null);
       setAddressError("");
+      setAddressLoading(false);
     }
   };
 
@@ -281,10 +437,11 @@ export default function ProjectSimulator() {
     council: analysis.council,
     mappedGfaCap: concept.mappedGfaCap,
   }) : null, [analysis, concept, form]);
-  const officialDifference = analysis?.area
-    ? Math.round(((analysis.area - form.knownLandArea) / form.knownLandArea) * 100)
+  const officialArea = mappedAreaFor(analysis);
+  const matchedArea = mappedAreaFor(matchedProperty);
+  const officialDifference = officialArea && form.knownLandArea
+    ? Math.round(((officialArea - form.knownLandArea) / form.knownLandArea) * 100)
     : null;
-
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!entitlement.canRun) return;
@@ -299,12 +456,24 @@ export default function ProjectSimulator() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "The property check could not be completed.");
-      const safeLocation = privateLocation(result, form.suburb, form.postcode);
-      const safeResult = { ...result, matchedAddress: safeLocation };
-      privateStreetAddress.current = result.matchedAddress;
+      const typedResult = result as SiteAnalysis;
+      const safeLocation = privateLocation(typedResult, form.suburb, form.postcode);
+      const safeResult = { ...typedResult, matchedAddress: safeLocation };
+      const fullPrivateAddress = typedResult.fullAddress || typedResult.matchedAddress;
+      privateStreetAddress.current = fullPrivateAddress;
+      lastResolvedAddress.current = fullPrivateAddress.toUpperCase();
+      setForm((current) => ({
+        ...current,
+        streetAddress: typedResult.addressDetails?.streetAddress ?? current.streetAddress,
+        suburb: typedResult.addressDetails?.suburb ?? current.suburb,
+        postcode: typedResult.addressDetails?.postcode ?? current.postcode,
+        lotDp: typedResult.lotDp ?? "",
+        frontage: typedResult.siteDimensions?.frontage ?? current.frontage,
+        depth: typedResult.siteDimensions?.depth ?? current.depth,
+      }));
       setAnalysis(safeResult);
       setMatchedProperty(safeResult);
-      window.setTimeout(() => document.querySelector("#simulation-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      window.setTimeout(() => document.querySelector("#simulation-confirmation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The property check could not be completed.");
     } finally {
@@ -314,6 +483,118 @@ export default function ProjectSimulator() {
 
   const address = form.suburb && form.postcode ? `${form.suburb}, NSW ${form.postcode}` : matchedProperty?.matchedAddress || "Private NSW property";
   const brief = form.description.trim() || `A ${form.storeys}-storey ${projectNames[form.projectGoal]} with ${form.bedrooms} bedrooms, ${form.bathrooms} bathrooms and ${form.parking} car spaces${form.projectGoal === "dual" ? " in each home" : ""}. Priorities include ${form.mustHaves.toLowerCase()}.`;
+
+  const buildCanonicalProject = (): CanonicalProject => {
+    const stored = readStoredProject();
+    const mapped = analysis ?? matchedProperty;
+    const verifiedItems = mapped ? [
+      mapped.council && `Council mapping: ${mapped.council}`,
+      mapped.controls.zone && `Mapped zone: ${mapped.controls.zone} ${mapped.controls.zoneName}`,
+      mapped.controls.maxHeight && `Mapped height layer: ${mapped.controls.maxHeight}`,
+      mapped.controls.fsr && `Mapped FSR layer: ${mapped.controls.fsr}`,
+      mapped.controls.minimumLotSize && `Mapped minimum lot size: ${mapped.controls.minimumLotSize}`,
+      mapped.controls.heritage && `Mapped heritage layer: ${mapped.controls.heritage}`,
+    ].filter(Boolean) as string[] : [];
+    return mergeProjectData(stored, {
+      client: { ...stored.client, name: form.clientName, email: form.clientEmail, phone: form.clientPhone, preferred_contact_method: form.preferredContact },
+      property: {
+        ...stored.property,
+        address: privateStreetAddress.current || stored.property.address || form.streetAddress,
+        suburb: form.suburb,
+        postcode: form.postcode,
+        lot_details: form.lotDp,
+        site_width: String(form.frontage),
+        site_depth: String(form.depth),
+        site_area: String(form.knownLandArea),
+        lot_type: form.lotType,
+        slope: form.slope,
+        orientation: form.orientation,
+        existing_structures: form.existingDwelling ? "Existing dwelling" : "",
+        site_notes: `Client-entered excavation depth ${form.proposedExcavationDepth}m; closest boundary ${form.excavationBoundaryDistance}m.`,
+      },
+      planning: {
+        ...stored.planning,
+        council: mapped?.council || stored.planning.council,
+        zoning: mapped?.controls.zone || stored.planning.zoning,
+        zone_name: mapped?.controls.zoneName || stored.planning.zone_name,
+        planning_instrument: mapped?.controls.lep || stored.planning.planning_instrument,
+        height_limit: mapped?.controls.maxHeight || stored.planning.height_limit,
+        floor_space_ratio: mapped?.controls.fsr || stored.planning.floor_space_ratio,
+        minimum_lot_size: mapped?.controls.minimumLotSize || stored.planning.minimum_lot_size,
+        heritage: mapped?.controls.heritage || stored.planning.heritage,
+        verified_items: verifiedItems,
+        unverified_items: mapped?.guidance.missing?.length ? mapped.guidance.missing : stored.planning.unverified_items,
+      },
+      ambition: {
+        ...stored.ambition,
+        project_type: form.projectGoal,
+        storeys: String(form.storeys),
+        bedrooms: String(form.bedrooms),
+        bathrooms: String(form.bathrooms),
+        parking: String(form.parking),
+        special_rooms: form.mustHaves.split(",").map((item) => item.trim()).filter(Boolean),
+        architectural_style: form.architecturalStyle,
+        interior_style: form.interiorStyle,
+        sustainability_goals: form.sustainabilityGoals.split(",").map((item) => item.trim()).filter(Boolean),
+        accessibility_requirements: form.accessibilityRequirements,
+        lifestyle_requirements: form.lifestyleRequirements,
+      },
+      roadmap: {
+        ...stored.roadmap,
+        budget: form.budget,
+        estimated_construction_cost: String(form.estimatedCost),
+        preferred_start_date: form.preferredStartDate,
+        completion_goal: form.completionGoal || form.timing,
+        approval_status: form.approvalStatus,
+        approval_pathway: mapped?.guidance.pathway || stored.roadmap.approval_pathway,
+        finance_status: form.financeStatus,
+        additional_notes: form.additionalInstructions,
+      },
+      simulation: {
+        ...stored.simulation,
+        client_description: form.description,
+        exterior_materials: form.exteriorMaterials,
+        interior_materials: form.interiorMaterials,
+        colour_preferences: form.colourPreferences,
+        roof_style: form.roofForm,
+        landscaping: form.landscaping,
+        pool: form.poolCapacity > 0 ? `${form.poolCapacity} L pool or spa` : "",
+        garage_or_carport: `${form.parking} car spaces`,
+        natural_light: form.naturalLight,
+        privacy: form.privacy,
+        views: form.views,
+        inspiration_links: form.inspirationLinks.split(/\n|,/).map((item) => item.trim()).filter(Boolean),
+        additional_instructions: form.additionalInstructions,
+      },
+      consent: { concept_disclaimer_accepted: confirmed, accepted_at: confirmed ? new Date().toISOString() : undefined },
+      metadata: { ...stored.metadata, source: "frc-project-simulator", updated_at: new Date().toISOString() },
+    });
+  };
+
+  const generateArchitecturalConcept = async () => {
+    if (!confirmed) {
+      setGenerationStatus("error");
+      setGenerationError("Confirm the preliminary-concept statement before generation.");
+      return;
+    }
+    setGenerationStatus("generating");
+    setGenerationError("");
+    try {
+      const project = buildCanonicalProject();
+      writeStoredProject(project);
+      const requestBody = new FormData();
+      requestBody.append("project", JSON.stringify(project));
+      uploadedFiles.forEach((file) => requestBody.append("files", file));
+      const response = await fetch("/api/simulation", { method: "POST", body: requestBody });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "The architectural concept could not be generated.");
+      try { sessionStorage.setItem(`frc-simulation:${result.job_id}`, JSON.stringify(result)); } catch { /* Large generated images may exceed session storage; the API result remains available. */ }
+      window.location.assign(`/simulation-results/${result.job_id}`);
+    } catch (caught) {
+      setGenerationStatus("error");
+      setGenerationError(caught instanceof Error ? caught.message : "The architectural concept could not be generated.");
+    }
+  };
 
   return (
     <main className="simulator-page">
@@ -355,7 +636,7 @@ export default function ProjectSimulator() {
               <div className="live-property-grid">
                 <div><span>Council</span><strong>{matchedProperty.council || "Not returned"}</strong></div>
                 <div><span>Lot / DP</span><strong>{matchedProperty.lotDp || "Not returned"}</strong></div>
-                <div><span>Mapped parcel area</span><strong>{matchedProperty.area?.toLocaleString() ?? "Not returned"} m²</strong><small>{matchedProperty.source?.areaSource}</small></div>
+                <div><span>Mapped parcel area</span><strong>{matchedArea?.toLocaleString() ?? "Not returned"} m²</strong><small>{matchedProperty.source?.areaSource ?? matchedProperty.parcelArea?.selectedSource}</small></div>
                 <div><span>Zone</span><strong>{matchedProperty.controls.zone} · {matchedProperty.controls.zoneName}</strong></div>
                 <div><span>Height</span><strong>{liveControlValue(matchedProperty.controls.maxHeight, matchedProperty.source?.layerStatus.height, "No numeric layer hit")}</strong></div>
                 <div><span>Floor-space ratio</span><strong>{liveControlValue(matchedProperty.controls.fsr, matchedProperty.source?.layerStatus.floorSpaceRatio, "No numeric layer hit")}</strong></div>
@@ -371,8 +652,8 @@ export default function ProjectSimulator() {
           </fieldset>
 
           <fieldset>
-            <legend><i>02</i><span>Working site dimensions<small>Mapped geometry · confirm against survey</small></span></legend>
-            <label><span>Working site area <small>{matchedProperty?.area ? "NSW mapped" : "Client supplied"}</small></span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
+            <legend><i>02</i><span>Known land dimensions<small>Client values stay separate from mapped NSW facts</small></span></legend>
+            <label><span>Plot area <small>Client supplied</small></span><div className="sim-unit"><input required type="number" min="1" value={form.knownLandArea} onChange={(event) => update("knownLandArea", Number(event.target.value))} /><b>m²</b></div></label>
             <label><span>Frontage <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.frontage} onChange={(event) => update("frontage", Number(event.target.value))} /><b>m</b></div></label>
             <label><span>Approx. depth <small>{matchedProperty?.siteDimensions ? "Approx. mapped" : "Confirm"}</small></span><div className="sim-unit"><input required type="number" min="1" step=".1" value={form.depth} onChange={(event) => update("depth", Number(event.target.value))} /><b>m</b></div></label>
             <label><span>Lot type</span><select value={form.lotType} onChange={(event) => update("lotType", event.target.value as SimulatorForm["lotType"])}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label>
@@ -397,7 +678,44 @@ export default function ProjectSimulator() {
           </fieldset>
 
           <fieldset>
-            <legend><i>04</i><span>Cost + site works<small>Used for BASIX and excavation screening</small></span></legend>
+            <legend><i>04</i><span>Client contact<small>Used for the final project package</small></span></legend>
+            <label><span>Full name</span><input required autoComplete="name" value={form.clientName} onChange={(event) => update("clientName", event.target.value)} placeholder="Client full name" /></label>
+            <label><span>Email</span><input required type="email" autoComplete="email" value={form.clientEmail} onChange={(event) => update("clientEmail", event.target.value)} placeholder="client@example.com" /></label>
+            <label><span>Phone</span><input required type="tel" autoComplete="tel" value={form.clientPhone} onChange={(event) => update("clientPhone", event.target.value)} placeholder="Best contact number" /></label>
+            <label><span>Preferred contact</span><select value={form.preferredContact} onChange={(event) => update("preferredContact", event.target.value)}><option>Email</option><option>Phone call</option><option>Text message</option></select></label>
+          </fieldset>
+
+          <fieldset>
+            <legend><i>05</i><span>Design description<small>One consistent brief for every specialist AI task</small></span></legend>
+            <div className="span-2 simulation-description-intro"><h3>Describe the home or development you want to create</h3><p>Tell us how you want the property to look, feel and function. Include the rooms, layout, materials, atmosphere, lifestyle requirements and special features you would like us to explore.</p></div>
+            <label className="span-2"><span>Design description *</span><textarea required rows={8} value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="Describe how the project should look, feel and function…" /></label>
+            <label><span>Architectural style</span><input value={form.architecturalStyle} onChange={(event) => update("architecturalStyle", event.target.value)} /></label>
+            <label><span>Interior style</span><input value={form.interiorStyle} onChange={(event) => update("interiorStyle", event.target.value)} /></label>
+            <label><span>Exterior materials</span><input value={form.exteriorMaterials} onChange={(event) => update("exteriorMaterials", event.target.value)} placeholder="Render, brick, timber, metal…" /></label>
+            <label><span>Interior materials</span><input value={form.interiorMaterials} onChange={(event) => update("interiorMaterials", event.target.value)} placeholder="Timber, stone, porcelain…" /></label>
+            <label><span>Colours</span><input value={form.colourPreferences} onChange={(event) => update("colourPreferences", event.target.value)} placeholder="Warm neutrals, charcoal accents…" /></label>
+            <label><span>Landscaping</span><input value={form.landscaping} onChange={(event) => update("landscaping", event.target.value)} placeholder="Native garden, lawn, courtyard…" /></label>
+            <label><span>Natural light</span><input value={form.naturalLight} onChange={(event) => update("naturalLight", event.target.value)} /></label>
+            <label><span>Privacy</span><input value={form.privacy} onChange={(event) => update("privacy", event.target.value)} /></label>
+            <label><span>Views</span><input value={form.views} onChange={(event) => update("views", event.target.value)} placeholder="Views to retain or frame" /></label>
+            <label><span>Accessibility</span><input value={form.accessibilityRequirements} onChange={(event) => update("accessibilityRequirements", event.target.value)} placeholder="Step-free access, adaptable room…" /></label>
+            <label className="span-2"><span>Sustainability goals</span><input value={form.sustainabilityGoals} onChange={(event) => update("sustainabilityGoals", event.target.value)} /></label>
+            <label className="span-2"><span>Lifestyle requirements</span><textarea rows={3} value={form.lifestyleRequirements} onChange={(event) => update("lifestyleRequirements", event.target.value)} placeholder="How the household lives, works, gathers and changes over time" /></label>
+            <label className="span-2"><span>Inspiration links</span><textarea rows={3} value={form.inspirationLinks} onChange={(event) => update("inspirationLinks", event.target.value)} placeholder="One link per line" /></label>
+            <label className="span-2"><span>Additional instructions</span><textarea rows={3} value={form.additionalInstructions} onChange={(event) => update("additionalInstructions", event.target.value)} placeholder="Anything the concept team should handle carefully" /></label>
+            <label className="span-2 simulation-upload"><span>Project files <small>Optional · JPG, PNG, WebP or PDF · 10 MB each</small></span><input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setUploadedFiles(Array.from(event.target.files || []).slice(0, 12))} />{uploadedFiles.length > 0 && <small>{uploadedFiles.map((file) => file.name).join(" · ")}</small>}</label>
+          </fieldset>
+
+          <fieldset>
+            <legend><i>06</i><span>Roadmap detail<small>Budget, timing and approval context</small></span></legend>
+            <label><span>Preferred start date</span><input type="date" value={form.preferredStartDate} onChange={(event) => update("preferredStartDate", event.target.value)} /></label>
+            <label><span>Completion goal</span><input value={form.completionGoal} onChange={(event) => update("completionGoal", event.target.value)} placeholder="e.g. Move in by late 2028" /></label>
+            <label><span>Approval status</span><select value={form.approvalStatus} onChange={(event) => update("approvalStatus", event.target.value)}><option>Not started</option><option>Early discussions</option><option>Survey ordered</option><option>DA in progress</option><option>CDC in progress</option><option>Approved</option></select></label>
+            <label><span>Finance status</span><select value={form.financeStatus} onChange={(event) => update("financeStatus", event.target.value)}><option>Not supplied</option><option>Budget established</option><option>Finance pre-approved</option><option>Finance approved</option><option>Self-funded</option></select></label>
+          </fieldset>
+
+          <fieldset>
+            <legend><i>07</i><span>Cost + site works<small>Used for BASIX and excavation screening</small></span></legend>
             <label><span>Estimated construction cost</span><div className="sim-unit prefix"><b>$</b><input required type="number" min="0" step="1000" value={form.estimatedCost} onChange={(event) => update("estimatedCost", Number(event.target.value))} /></div></label>
             <label><span>Pool / spa capacity <small>optional</small></span><div className="sim-unit"><input type="number" min="0" step="1000" value={form.poolCapacity} onChange={(event) => update("poolCapacity", Number(event.target.value))} /><b>L</b></div></label>
             <label><span>Deepest proposed cut</span><div className="sim-unit"><input required type="number" min="0" step=".1" value={form.proposedExcavationDepth} onChange={(event) => update("proposedExcavationDepth", Number(event.target.value))} /><b>m</b></div></label>
@@ -429,6 +747,22 @@ export default function ProjectSimulator() {
           <p>The mass is calculated from the room schedule below. Its placement remains provisional until setbacks, easements and surveyed levels are known.</p>
         </aside>
       </section>
+
+      {analysis && <section className="simulation-confirmation" id="simulation-confirmation">
+        <header><div><span>02 / Final confirmation</span><h2>Review everything<br /><em>before generation.</em></h2></div><p>The property, planning, ambition, roadmap, client contact and design description below will be combined into one structured project brief.</p></header>
+        <div className="confirmation-grid">
+          <article><span>Property</span><strong>{form.suburb}, NSW {form.postcode}</strong><p>{form.knownLandArea.toLocaleString()} m² · {form.frontage}m frontage · {form.depth}m depth · {form.lotDp || "Lot / DP not supplied"}</p></article>
+          <article><span>Planning</span><strong>{analysis.controls.zone} · {analysis.council}</strong><p>Mapped values remain subject to council, survey, title, planner and architect verification.</p></article>
+          <article><span>Ambition</span><strong>{form.storeys}-storey {projectNames[form.projectGoal]}</strong><p>{form.bedrooms} bedrooms · {form.bathrooms} bathrooms · {form.parking} car spaces · {form.architecturalStyle}</p></article>
+          <article><span>Roadmap</span><strong>{form.budget || "Budget not supplied"}</strong><p>{form.completionGoal || form.timing} · {form.approvalStatus} · {form.financeStatus}</p></article>
+          <article><span>Client</span><strong>{form.clientName || "Name required"}</strong><p>{form.clientEmail || "Email required"} · {form.clientPhone || "Phone required"}</p></article>
+          <article><span>Documents</span><strong>{uploadedFiles.length} file{uploadedFiles.length === 1 ? "" : "s"} selected</strong><p>{uploadedFiles.length ? uploadedFiles.map((file) => file.name).join(" · ") : "No files selected. You can still generate the written study."}</p></article>
+        </div>
+        <div className="confirmation-description"><span>Client design description</span><p>{form.description}</p></div>
+        <label className={`simulation-consent ${confirmed ? "confirmed" : ""}`}><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span><b>I confirm that the information provided is correct to the best of my knowledge and understand that the generated material is an early concept only.</b><small>This does not confirm planning approval, structural suitability or what can legally be constructed.</small></span></label>
+        {generationError && <div className="sim-error"><b>Generation could not complete.</b><span>{generationError}</span></div>}
+        <button className="generate-concept" type="button" disabled={!confirmed || generationStatus === "generating"} onClick={generateArchitecturalConcept}>{generationStatus === "generating" ? "Generating the architectural concept…" : "Generate my architectural concept"}<span>{generationStatus === "generating" ? "···" : "→"}</span></button>
+      </section>}
 
       {analysis && <section className="simulation-result" id="simulation-result">
         <header className="result-heading"><div><span>03 / Property feasibility</span><h2>Live site facts.<br /><em>A traceable brief.</em></h2></div><div className={`result-verdict ${concept.overallStatus}`}><small>Mapped-control result</small><strong>{concept.headline}</strong><span>{analysis.guidance.pathway}</span></div></header>
@@ -473,7 +807,7 @@ export default function ProjectSimulator() {
 
         <div className="truth-grid">
           <article><header><i>01</i><span>Confirmed by NSW mapping</span></header><dl><div><dt>Approximate location</dt><dd>{analysis.matchedAddress}</dd></div><div><dt>Privacy</dt><dd>Street address hidden from this overview</dd></div><div><dt>Council</dt><dd>{analysis.council}</dd></div><div><dt>Zone</dt><dd>{analysis.controls.zone} · {analysis.controls.zoneName}</dd></div><div><dt>LEP / instrument</dt><dd>{analysis.controls.lep}</dd></div><div><dt>Mapped height</dt><dd>{analysis.controls.maxHeight ?? "No numeric value returned"}</dd></div><div><dt>Mapped FSR</dt><dd>{analysis.controls.fsr ?? "No numeric value returned"}</dd></div><div><dt>Minimum lot-size map</dt><dd>{analysis.controls.minimumLotSize ?? "No numeric value returned"}</dd></div><div><dt>Heritage layer</dt><dd>{analysis.controls.heritage ?? "No principal layer hit"}</dd></div></dl></article>
-          <article><header><i>02</i><span>Supplied by the client</span></header><dl><div><dt>Plot area</dt><dd>{form.knownLandArea.toLocaleString()} m²</dd></div><div><dt>Frontage / depth</dt><dd>{form.frontage}m / {form.depth}m approx.</dd></div><div><dt>Official parcel cross-check</dt><dd>{analysis.area?.toLocaleString() ?? "Not returned"} m²{officialDifference !== null ? ` (${officialDifference > 0 ? "+" : ""}${officialDifference}% difference)` : ""}</dd></div><div><dt>Lot / DP</dt><dd>{form.lotDp || "Not supplied"}</dd></div><div><dt>Slope</dt><dd>{form.slope}</dd></div><div><dt>Existing building</dt><dd>{form.existingDwelling ? "Yes" : "No / not advised"}</dd></div><div><dt>Estimated cost</dt><dd>${form.estimatedCost.toLocaleString()}</dd></div><div><dt>Excavation intent</dt><dd>{form.proposedExcavationDepth}m deep · {form.excavationBoundaryDistance}m to boundary</dd></div></dl></article>
+          <article><header><i>02</i><span>Supplied by the client</span></header><dl><div><dt>Plot area</dt><dd>{form.knownLandArea.toLocaleString()} m²</dd></div><div><dt>Frontage / depth</dt><dd>{form.frontage}m / {form.depth}m approx.</dd></div><div><dt>Mapped cadastral parcel</dt><dd>{officialArea?.toLocaleString() ?? "Not returned"} m²{officialDifference !== null ? ` (${officialDifference > 0 ? "+" : ""}${officialDifference}% versus client area)` : ""}</dd></div><div><dt>Area source</dt><dd>{analysis.parcelArea?.selectedSource ?? "Selected NSW cadastral lot"}{analysis.areaStatus === "requires_verification" ? " · requires verification" : ""}</dd></div><div><dt>Lot / DP</dt><dd>{form.lotDp || "Not supplied"}</dd></div><div><dt>Slope</dt><dd>{form.slope}</dd></div><div><dt>Existing building</dt><dd>{form.existingDwelling ? "Yes" : "No / not advised"}</dd></div><div><dt>Estimated cost</dt><dd>${form.estimatedCost.toLocaleString()}</dd></div><div><dt>Excavation intent</dt><dd>{form.proposedExcavationDepth}m deep · {form.excavationBoundaryDistance}m to boundary</dd></div></dl></article>
           <article className="verify-card"><header><i>03</i><span>Must be verified before design freeze</span></header><ul><li>Deposited plan, title, easements and restrictions</li><li>Detail survey, contours and actual boundary dimensions</li><li>Council DCP setbacks, landscaped area and local character controls</li><li>Flood, bushfire, biodiversity, contamination and servicing constraints</li><li>Geotechnical conditions, excavation and retaining strategy</li><li>BASIX, NCC, stormwater, access and consultant requirements</li></ul></article>
         </div>
 

@@ -22,9 +22,9 @@ test("selected cadastral lot drives parcel facts while optional planning layers 
 
   assert.match(route, /planlotarea/);
   assert.match(route, /lotFeature\?\.geometry\?\.rings/);
-  assert.match(route, /Promise\.allSettled/);
-  assert.match(route, /"unavailable"/);
-  assert.match(route, /areaSource: lotArea > 0 \? "Selected NSW cadastral lot"/);
+  assert.match(route, /safePlanningLayer/);
+  assert.match(route, /safeGetJson/);
+  assert.match(route, /serviceReportedAreaSqm\s*\?\s*"Selected NSW cadastral lot"/);
   assert.match(route, /layerStatus/);
 });
 
