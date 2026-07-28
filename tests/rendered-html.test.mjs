@@ -14,10 +14,8 @@ test("FRC portfolio source excludes the removed partnered projects", () => {
   assert.doesNotMatch(home, /Kingsford|Wills Road|Student Living/i);
 });
 
-test("simulator presents a property-first live NSW workflow", () => {
-  assert.match(simulator, /Start with<br \/><em>the address\.<\/em>/);
-  assert.match(simulator, /Live NSW property services/);
-  assert.match(simulator, /Match property/);
-  assert.match(simulator, /No AI guessing/);
-  assert.match(simulator, /Official NSW property matched/);
+test("public simulator remains a coming-soon surface", () => {
+  assert.match(simulator, /coming soon/i);
+  assert.match(simulator, /Property →/);
+  assert.doesNotMatch(simulator, /Generate my architectural concept/);
 });

@@ -8,7 +8,7 @@ test("uses one canonical project brief across the client journey", async () => {
   const [projectData, home, simulator] = await Promise.all([
     read("app/lib/project-data.ts"),
     read("app/page.tsx"),
-    read("app/simulator/page.tsx"),
+    read("app/page.tsx"),
   ]);
 
   for (const section of ["client", "property", "planning", "ambition", "roadmap", "simulation", "consent"]) {
@@ -16,8 +16,8 @@ test("uses one canonical project brief across the client journey", async () => {
   }
   assert.match(home, /writeStoredProject/);
   assert.match(simulator, /readStoredProject/);
-  assert.match(simulator, /Generate my architectural concept/);
-  assert.match(simulator, /I confirm that the information provided is correct to the best of my knowledge/);
+  assert.match(simulator, /Request a quote/);
+  assert.match(simulator, /carried-forward project details are correct/);
 });
 
 test("keeps provider credentials server-side and routes specialist tasks independently", async () => {
@@ -26,7 +26,7 @@ test("keeps provider credentials server-side and routes specialist tasks indepen
     read("app/lib/ai/orchestrator.ts"),
     read("app/api/simulation/route.ts"),
     read("app/page.tsx"),
-    read("app/simulator/page.tsx"),
+    read("app/page.tsx"),
   ]);
 
   assert.match(provider, /process\.env\.OPENAI_API_KEY/);
@@ -54,7 +54,7 @@ test("defines persistence, secure files, failure handling and final report deliv
   assert.match(files, /FILE_SIGNING_SECRET/);
   assert.match(files, /10 \* 1024 \* 1024/);
   assert.match(orchestrator, /fallback/);
-  assert.match(email, /New Architectural Concept Study/);
-  assert.match(result, /Download concept report/);
+  assert.match(email, /lead architect handover/);
+  assert.match(result, /Print \/ save handover/);
   assert.match(result, /planning_information_requiring_verification/);
 });

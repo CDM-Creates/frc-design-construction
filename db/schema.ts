@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -69,6 +69,31 @@ export const finalReports = sqliteTable("final_reports", {
   reportJson: text("report_json").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const siteCapacityPackages = sqliteTable("site_capacity_packages", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => simulationJobs.id, { onDelete: "cascade" }),
+  calculatorVersion: integer("calculator_version").notNull().default(2),
+  calculationStatus: text("calculation_status").notNull(),
+  packageJson: text("package_json").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("site_capacity_packages_job_id_unique").on(table.jobId)]);
+
+export const architectOverrides = sqliteTable("architect_overrides", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => simulationJobs.id, { onDelete: "cascade" }),
+  field: text("field").notNull(),
+  originalMappedValueJson: text("original_mapped_value_json"),
+  originalClientValueJson: text("original_client_value_json"),
+  architectEnteredValueJson: text("architect_entered_value_json").notNull(),
+  selectedValueJson: text("selected_value_json").notNull(),
+  sourceDocument: text("source_document"),
+  editor: text("editor").notNull(),
+  reason: text("reason").notNull(),
+  verified: integer("verified", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("architect_overrides_job_id_idx").on(table.jobId)]);
 
 export const uploadedDocuments = sqliteTable("uploaded_documents", {
   id: text("id").primaryKey(),

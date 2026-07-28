@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const routeUrl = new URL("../app/api/site-analysis/route.ts", import.meta.url);
-const simulatorUrl = new URL("../app/simulator/page.tsx", import.meta.url);
+const simulatorUrl = new URL("../app/page.tsx", import.meta.url);
 
 test("live lookup requires a complete NSW address and protects against stale matches", async () => {
   const [route, simulator] = await Promise.all([
@@ -12,9 +12,8 @@ test("live lookup requires a complete NSW address and protects against stale mat
   ]);
 
   assert.match(route, /four-digit postcode/);
-  assert.match(simulator, /completeNSWAddress/);
-  assert.match(simulator, /lookupRequestId/);
-  assert.match(simulator, /requestId !== lookupRequestId\.current/);
+  assert.match(simulator, /siteAnalysisRequestId/);
+  assert.match(simulator, /requestId !== siteAnalysisRequestId\.current/);
 });
 
 test("selected cadastral lot drives parcel facts while optional planning layers remain optional", async () => {

@@ -154,18 +154,16 @@ export function SiteCapacityPanel({ capacity }: SiteCapacityPanelProps) {
                 >
                   <div>
                     <p className="font-medium text-slate-900">{control.label}</p>
-                    <p className="text-sm text-slate-500">{control.source}</p>
+                    <p className="text-sm text-slate-500">{control.planning_value.sourceName}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-slate-900">
-                      {control.value === undefined
+                      {control.planning_value.value === null
                         ? "Missing"
-                        : control.unit === "ratio"
-                          ? control.value.toFixed(3)
-                          : `${control.value} ${control.unit}`}
+                        : `${control.planning_value.value} ${control.planning_value.unit || ""}`}
                     </p>
                     <p className="text-sm capitalize text-slate-500">
-                      {control.status}
+                      {control.planning_value.status}
                     </p>
                   </div>
                 </div>
@@ -186,28 +184,28 @@ export function SiteCapacityPanel({ capacity }: SiteCapacityPanelProps) {
               </p>
             </div>
             <p className="text-sm text-slate-600">
-              {capacity.room_schedule.length} spaces assessed
+              {capacity.room_programme.length} spaces assessed
             </p>
           </div>
 
           <div className="mt-5 space-y-3">
-            {capacity.room_schedule.map((space) => (
+            {capacity.room_programme.map((space) => (
               <article
-                key={space.space_name}
+                key={space.id}
                 className="rounded-xl border border-slate-200 p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="font-medium text-slate-950">
-                      {space.space_name}
+                      {space.room_name}
                     </h4>
                     <p className="mt-1 text-sm text-slate-600">
-                      {space.suggested_floor} · {space.suggested_location}
+                      {space.floor} · {space.suggested_location}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-slate-950">
-                      {space.recommended_dimensions || space.approximate_area_range}
+                      {space.recommended_width_m} m × {space.recommended_depth_m} m
                     </p>
                     <p className="mt-1 text-sm capitalize text-slate-500">
                       {space.fit_status?.replaceAll("_", " ") || "unverified"}

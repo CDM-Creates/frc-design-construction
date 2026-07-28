@@ -10,6 +10,41 @@ export type UploadedProjectDocument = {
   url?: string;
 };
 
+export type ProjectPlanningSourceValue = {
+  value: string | number | boolean | null;
+  unit?: string;
+  sourceName: string;
+  sourceLayer?: string;
+  sourceFeatureId?: string;
+  sourceDocument?: string;
+  retrievedAt?: string;
+  status: "verified" | "mapped" | "client-supplied" | "architect-entered" | "missing" | "conflict";
+  notes?: string;
+};
+
+export type ProjectArchitectOverride = {
+  id: string;
+  field: string;
+  original_mapped_value?: string | number | boolean | null;
+  original_client_value?: string | number | boolean | null;
+  architect_entered_value: string | number | boolean | null;
+  selected_value: string | number | boolean | null;
+  source_document?: string;
+  editor: string;
+  timestamp: string;
+  reason: string;
+  verified: boolean;
+};
+
+export type ProjectRoomOverride = {
+  room_id: string;
+  floor?: string;
+  recommended_width_m?: number;
+  recommended_depth_m?: number;
+  locked?: boolean;
+  priority?: "required" | "preferred" | "optional";
+};
+
 export type CanonicalProject = {
   version: 1;
   id?: string;
@@ -35,7 +70,13 @@ export type CanonicalProject = {
     site_area: string;
     client_site_area: string;
     mapped_site_area: string;
+    calculated_geometry_area: string;
     surveyed_site_area: string;
+    selected_parcel_id: string;
+    parcel_geometry_source: string;
+    parcel_geometry: number[][][];
+    parcel_rectangularity: string;
+    parcel_irregularity: "regular" | "possibly_irregular" | "irregular" | "unknown";
     lot_type: string;
     slope: string;
     orientation: string;
@@ -65,6 +106,7 @@ export type CanonicalProject = {
     heritage: string;
     bushfire: string;
     flooding: string;
+    source_values: Record<string, ProjectPlanningSourceValue>;
     planning_documents: UploadedProjectDocument[];
     verified_items: string[];
     unverified_items: string[];
@@ -112,6 +154,14 @@ export type CanonicalProject = {
     concept_disclaimer_accepted: boolean;
     accepted_at?: string;
   };
+  architect: {
+    household_profile: "efficient" | "comfortable" | "generous";
+    confirmed_lot_type: string;
+    front_boundary_confirmed: boolean;
+    notes: string[];
+    overrides: ProjectArchitectOverride[];
+    room_overrides: ProjectRoomOverride[];
+  };
   metadata: {
     source: string;
     created_at: string;
@@ -126,14 +176,15 @@ export const createEmptyProject = (): CanonicalProject => {
     client: { name: "", email: "", phone: "", preferred_contact_method: "Email", company: "" },
     property: {
       address: "", suburb: "", state: "NSW", postcode: "", lot_details: "", site_width: "", site_depth: "", site_area: "",
-      client_site_area: "", mapped_site_area: "", surveyed_site_area: "",
+      client_site_area: "", mapped_site_area: "", calculated_geometry_area: "", surveyed_site_area: "",
+      selected_parcel_id: "", parcel_geometry_source: "", parcel_geometry: [], parcel_rectangularity: "", parcel_irregularity: "unknown",
       lot_type: "standard", slope: "unknown", orientation: "unknown", existing_structures: "", site_notes: "",
     },
     planning: {
       council: "", zoning: "", zone_name: "", planning_instrument: "", height_limit: "", floor_space_ratio: "",
       minimum_lot_size: "", site_coverage: "", landscaped_area: "", private_open_space: "", setbacks: "",
       front_setback: "", rear_setback: "", side_setback_left: "", side_setback_right: "",
-      heritage: "", bushfire: "", flooding: "", planning_documents: [], verified_items: [],
+      heritage: "", bushfire: "", flooding: "", source_values: {}, planning_documents: [], verified_items: [],
       unverified_items: ["Title and deposited plan", "Registered survey", "Council DCP controls", "Flood and bushfire mapping", "Easements and restrictions"],
     },
     ambition: {
@@ -151,6 +202,14 @@ export const createEmptyProject = (): CanonicalProject => {
       additional_instructions: "", uploaded_files: [],
     },
     consent: { concept_disclaimer_accepted: false },
+    architect: {
+      household_profile: "comfortable",
+      confirmed_lot_type: "",
+      front_boundary_confirmed: false,
+      notes: [],
+      overrides: [],
+      room_overrides: [],
+    },
     metadata: { source: "website", created_at: now, updated_at: now },
   };
 };

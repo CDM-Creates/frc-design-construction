@@ -5,7 +5,7 @@ import { sectionSchemaDescription } from "./contracts";
 import { generateImage, runTextTask } from "./provider";
 import { calculateSiteCapacity } from "./site-capacity";
 
-const disclaimer = "This AI-assisted concept study is intended for preliminary design exploration only. It is not architectural advice, a planning certificate, a development approval, a construction drawing, a building approval, an engineering assessment or confirmation of what can legally be constructed. All site information, planning controls, measurements and design recommendations must be verified by the appropriate registered professionals.";
+const disclaimer = "This preliminary feasibility and architect handover is a source-traceable design aid, not a planning certificate, development approval, construction drawing, engineering assessment or confirmation of what can legally be built. Mapped data can be incomplete or superseded. The lead architect and relevant consultants must verify the registered survey, title, legislation, LEP/DCP controls, hazards, services and all measured design work.";
 
 const cleanList = (value: unknown, fallback: string[] = []) => Array.isArray(value)
   ? value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean).slice(0, 24)
@@ -109,9 +109,9 @@ function fallbackPrompts(project: CanonicalProject): ImagePrompt[] {
 function fallbackFinal(project: CanonicalProject, specialist: SpecialistPackage, providerNotes: string[]): FinalReport {
   const property = [project.property.address, project.property.suburb, project.property.state, project.property.postcode].filter(Boolean).join(", ");
   return {
-    report_version: 1,
+    report_version: 2,
     project_title: projectTitle(project),
-    cover_statement: "Preliminary AI-assisted architectural concept study prepared from the client-supplied project brief.",
+    cover_statement: "Source-traceable preliminary property feasibility and architect handover prepared from the matched NSW parcel, available planning controls and client brief.",
     client_and_property_details: {
       Client: project.client.name || "Not supplied",
       Email: project.client.email || "Not supplied",
@@ -133,6 +133,7 @@ function fallbackFinal(project: CanonicalProject, specialist: SpecialistPackage,
     client_vision: project.simulation.client_description || project.ambition.lifestyle_requirements || "A tailored home or development responding to the client brief, site and budget.",
     project_summary: specialist.architectural_direction.summary,
     site_capacity: specialist.site_capacity,
+    planning_sources: Object.values(specialist.site_capacity.planning_values),
     site_opportunities: specialist.property_analysis.recommendations,
     potential_site_constraints: specialist.property_analysis.items_to_verify,
     planning_information_requiring_verification: Array.from(new Set([
@@ -144,7 +145,11 @@ function fallbackFinal(project: CanonicalProject, specialist: SpecialistPackage,
     exterior_design: specialist.architectural_direction.recommendations.join(" "),
     interior_design: specialist.interior_direction.summary,
     preliminary_spatial_arrangement: `${specialist.site_capacity.programme_fit.explanation} The schedule uses deterministic practical-space targets and retains planning/design-development allowances. Exact geometry and room dimensions must be tested by the lead architect against the registered survey and verified controls.`,
-    room_schedule: specialist.room_schedule,
+    household_profile: specialist.site_capacity.household_profile,
+    room_programme: specialist.room_programme,
+    floor_totals: specialist.site_capacity.floor_allocations,
+    brief_fit_result: specialist.site_capacity.programme_fit,
+    development_pathways: specialist.site_capacity.development_pathways,
     material_and_colour_palette: [project.simulation.exterior_materials, project.simulation.interior_materials, project.simulation.colour_preferences].filter(Boolean),
     sustainability_opportunities: project.ambition.sustainability_goals.length ? project.ambition.sustainability_goals : ["Passive solar orientation", "Cross-ventilation", "High-performance glazing and shading", "Efficient all-electric services", "Water-sensitive landscape design"],
     accessibility_considerations: project.ambition.accessibility_requirements ? [project.ambition.accessibility_requirements, "Confirm circulation widths, thresholds, bathroom clearances and entry gradients during detailed design."] : ["Consider a step-free entry, an adaptable ground-floor room and accessible bathroom provisions.", "Confirm requirements with an access consultant where relevant."],
@@ -154,16 +159,20 @@ function fallbackFinal(project: CanonicalProject, specialist: SpecialistPackage,
       ...specialist.architectural_direction.assumptions,
       ...specialist.interior_direction.assumptions,
     ])),
+    warnings: specialist.site_capacity.warnings,
     missing_information: Array.from(new Set([
       ...specialist.site_capacity.verification_required,
       ...specialist.property_analysis.missing_information,
       ...specialist.architectural_direction.missing_information,
       ...specialist.interior_direction.missing_information,
     ])),
-    questions_for_client: ["Which spaces matter most to everyday life?", "What parts of the budget are fixed and what can move?", "Which materials, colours or precedents should be avoided?", "Are there future family, accessibility or resale needs to plan for?"],
+    unresolved_client_questions: ["Which spaces matter most to everyday life?", "What parts of the budget are fixed and what can move?", "Which materials, colours or precedents should be avoided?", "Are there future family, accessibility or resale needs to plan for?"],
+    missing_documents: project.planning.planning_documents.length ? [] : ["Registered detail survey", "Current title and deposited plan", "Relevant planning certificates or council property report"],
     required_professional_investigations: ["Registered detail survey", "Title and easement review", "Architect and town-planner review", "Structural and geotechnical advice", "Civil, stormwater and services review", "BASIX / sustainability assessment", "Certifier and NCC review"],
+    architect_notes: specialist.site_capacity.architect_notes,
     recommended_next_steps: ["Review this concept study with the client.", "Commission the survey and title documents.", "Confirm planning and approval strategy with the architect or planner.", "Develop measured concept options and a project cost plan.", "Coordinate required consultants before approval documentation."],
     architectural_disclaimer: disclaimer,
+    narrative_mode: "deterministic-template",
     provider_notes: providerNotes,
   };
 }
@@ -176,7 +185,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
   const architectureFallback = fallbackArchitecture(project);
   const interiorFallback = fallbackInterior(project);
   const siteCapacity = calculateSiteCapacity(project);
-  const roomsFallback = siteCapacity.room_schedule;
+  const roomsFallback = siteCapacity.room_programme;
   const promptsFallback = fallbackPrompts(project);
   const defaultProvider = process.env.DEFAULT_TEXT_PROVIDER || "openai";
   const defaultModel = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
@@ -207,12 +216,12 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
       fallback: interiorFallback as unknown as Record<string, unknown>,
     }),
     runTextTask({
-      taskName: "room_schedule",
+      taskName: "household_programme",
       provider: process.env.ROOM_SCHEDULE_PROVIDER || defaultProvider,
       model: process.env.ROOM_SCHEDULE_MODEL || defaultModel,
-      system: `${untrustedDataNotice} Return JSON only with one key named room_schedule. Review the deterministic room schedule supplied in SITE CAPACITY. Keep every space_name exactly unchanged. Do not change any numeric area, dimension, fit status or area treatment. Return qualitative improvements only through suggested_location, main_purpose, relationship_to_nearby_spaces and design_notes.`,
+      system: `${untrustedDataNotice} Return JSON only with one key named room_programme. Review the deterministic room programme supplied in SITE CAPACITY. Keep every room_name exactly unchanged. Do not change any numeric area, dimension, priority, fit status or area treatment. Return qualitative improvements only through suggested_location, main_purpose, adjacency_list and design_notes.`,
       prompt: `Review the deterministic room and space schedule against the project brief. Preserve the calculated programme and improve only the qualitative architectural guidance.\n\nPROJECT AND SITE CAPACITY\n${capacityPayload(project)}`,
-      fallback: { room_schedule: roomsFallback },
+      fallback: { room_programme: roomsFallback },
     }),
     runTextTask({
       taskName: "image_prompts",
@@ -224,30 +233,27 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     }),
   ]);
 
-  const roomRaw = Array.isArray(roomResult.value.room_schedule)
-    ? roomResult.value.room_schedule
+  const roomRaw = Array.isArray(roomResult.value.room_programme)
+    ? roomResult.value.room_programme
     : [];
   const roomReviews = new Map<string, Record<string, unknown>>();
   for (const item of roomRaw as unknown[]) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    const name = cleanString(row.space_name);
+    const name = cleanString(row.room_name);
     if (name) roomReviews.set(name.toLowerCase(), row);
   }
 
   // The calculator owns every number. AI can improve only the qualitative
   // placement and design notes, so it cannot silently enlarge the house.
   const roomSchedule = roomsFallback.map((baseline) => {
-    const review = roomReviews.get(baseline.space_name.toLowerCase());
+    const review = roomReviews.get(baseline.room_name.toLowerCase());
     if (!review) return baseline;
     return {
       ...baseline,
       suggested_location: cleanString(review.suggested_location, baseline.suggested_location),
       main_purpose: cleanString(review.main_purpose, baseline.main_purpose),
-      relationship_to_nearby_spaces: cleanString(
-        review.relationship_to_nearby_spaces,
-        baseline.relationship_to_nearby_spaces,
-      ),
+      adjacency_list: cleanList(review.adjacency_list, baseline.adjacency_list),
       design_notes: cleanString(review.design_notes, baseline.design_notes),
     } satisfies RoomScheduleItem;
   });
@@ -269,7 +275,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     property_analysis: normaliseSection(propertyResult.value, propertyFallback),
     architectural_direction: normaliseSection(architectureResult.value, architectureFallback),
     interior_direction: normaliseSection(interiorResult.value, interiorFallback),
-    room_schedule: roomSchedule.length ? roomSchedule : roomsFallback,
+    room_programme: roomSchedule.length ? roomSchedule : roomsFallback,
     image_prompts: imagePrompts.length === 8 ? imagePrompts : promptsFallback,
   };
 
@@ -281,7 +287,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     taskName: "final_report",
     provider: process.env.FINAL_REPORT_PROVIDER || defaultProvider,
     model: process.env.FINAL_REPORT_MODEL || defaultModel,
-    system: `${untrustedDataNotice} You are the final editor. Reconcile the specialist outputs into one coherent report without inventing a different design. Return JSON only and preserve the supplied room schedule. Include every required section represented in the fallback schema.`,
+    system: `${untrustedDataNotice} You are the final editor. Reconcile the specialist outputs into one coherent report without inventing a different design. Return JSON only and preserve the supplied deterministic household programme. Include every required section represented in the fallback schema.`,
     prompt: `PROJECT\n${projectPayload(project)}\n\nSPECIALIST OUTPUTS\n${JSON.stringify(specialist, null, 2)}\n\nREQUIRED REPORT SHAPE\n${JSON.stringify(finalFallback, null, 2)}`,
     fallback: finalFallback as unknown as Record<string, unknown>,
   });
@@ -289,7 +295,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
   const finalValue = finalResult.value;
   const finalReport: FinalReport = {
     ...finalFallback,
-    report_version: 1,
+    report_version: 2,
     project_title: cleanString(finalValue.project_title, finalFallback.project_title),
     cover_statement: cleanString(finalValue.cover_statement, finalFallback.cover_statement),
     client_and_property_details: finalValue.client_and_property_details && typeof finalValue.client_and_property_details === "object" && !Array.isArray(finalValue.client_and_property_details)
@@ -298,6 +304,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     client_vision: cleanString(finalValue.client_vision, finalFallback.client_vision),
     project_summary: cleanString(finalValue.project_summary, finalFallback.project_summary),
     site_capacity: specialist.site_capacity,
+    planning_sources: finalFallback.planning_sources,
     site_opportunities: cleanList(finalValue.site_opportunities, finalFallback.site_opportunities),
     potential_site_constraints: cleanList(finalValue.potential_site_constraints, finalFallback.potential_site_constraints),
     planning_information_requiring_verification: cleanList(finalValue.planning_information_requiring_verification, finalFallback.planning_information_requiring_verification),
@@ -305,16 +312,24 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     exterior_design: cleanString(finalValue.exterior_design, finalFallback.exterior_design),
     interior_design: cleanString(finalValue.interior_design, finalFallback.interior_design),
     preliminary_spatial_arrangement: cleanString(finalValue.preliminary_spatial_arrangement, finalFallback.preliminary_spatial_arrangement),
-    room_schedule: specialist.room_schedule,
+    household_profile: specialist.site_capacity.household_profile,
+    room_programme: specialist.room_programme,
+    floor_totals: specialist.site_capacity.floor_allocations,
+    brief_fit_result: specialist.site_capacity.programme_fit,
+    development_pathways: specialist.site_capacity.development_pathways,
     material_and_colour_palette: cleanList(finalValue.material_and_colour_palette, finalFallback.material_and_colour_palette),
     sustainability_opportunities: cleanList(finalValue.sustainability_opportunities, finalFallback.sustainability_opportunities),
     accessibility_considerations: cleanList(finalValue.accessibility_considerations, finalFallback.accessibility_considerations),
     assumptions: cleanList(finalValue.assumptions, finalFallback.assumptions),
+    warnings: specialist.site_capacity.warnings,
     missing_information: cleanList(finalValue.missing_information, finalFallback.missing_information),
-    questions_for_client: cleanList(finalValue.questions_for_client, finalFallback.questions_for_client),
+    unresolved_client_questions: cleanList(finalValue.unresolved_client_questions, finalFallback.unresolved_client_questions),
+    missing_documents: cleanList(finalValue.missing_documents, finalFallback.missing_documents),
     required_professional_investigations: cleanList(finalValue.required_professional_investigations, finalFallback.required_professional_investigations),
+    architect_notes: specialist.site_capacity.architect_notes,
     recommended_next_steps: cleanList(finalValue.recommended_next_steps, finalFallback.recommended_next_steps),
     architectural_disclaimer: disclaimer,
+    narrative_mode: taskResults.some((result) => result.status !== "fallback") ? "ai-assisted" : "deterministic-template",
     provider_notes: [...providerNotes, ...(finalResult.status === "fallback" ? [`${finalResult.provider}/${finalResult.model}: final synthesis fallback used${finalResult.error ? ` (${finalResult.error})` : ""}.`] : [])],
   };
 
@@ -345,7 +360,7 @@ export async function orchestrateSimulation(jobId: string, project: CanonicalPro
     { task: "property_analysis", ...propertyResult },
     { task: "architectural_direction", ...architectureResult },
     { task: "interior_direction", ...interiorResult },
-    { task: "room_schedule", ...roomResult },
+    { task: "household_programme", ...roomResult },
     { task: "image_prompts", ...promptResult },
     { task: "final_report", ...finalResult },
   ].map(({ task, provider, model, status, error }) => ({ task, provider, model, status, error }));

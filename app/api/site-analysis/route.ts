@@ -1,5 +1,3 @@
-import { calculateRegulatoryScreen } from "../../simulator/regulatory-engine";
-
 type ArcFeature = {
   attributes?: Record<string, unknown>;
   geometry?: { rings?: number[][][] };
@@ -30,6 +28,7 @@ type AddressServiceResponse = {
 
 const ADDRESS_SERVICE = "https://mapsq.six.nsw.gov.au/services/public/Address_Location";
 const PLANNING_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/services/ePlanning/Planning_Portal_Principal_Planning/MapServer";
+const HAZARD_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/services/ePlanning/Planning_Portal_Hazard/MapServer";
 const PROPERTY_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/12";
 const LOT_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/8";
 
@@ -109,6 +108,20 @@ async function safePlanningLayer(layer: number, label: string, longitude: number
   }
 }
 
+async function safeSpatialLayer(service: string, layer: number, label: string, longitude: number, latitude: number) {
+  const params = new URLSearchParams({
+    geometry: `${longitude},${latitude}`,
+    geometryType: "esriGeometryPoint",
+    inSR: "4283",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "*",
+    returnGeometry: "false",
+    f: "json",
+  });
+  const data = await safeGetJson(`${service}/${layer}/query?${params}`, label);
+  return (data?.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
+}
+
 function signedRingAreaSqm(ring: number[][]) {
   const points = ring.filter(([longitude, latitude]) => Number.isFinite(longitude) && Number.isFinite(latitude));
   if (points.length < 4) return 0;
@@ -175,6 +188,22 @@ function parcelDimensions(ring: number[][]) {
   };
 }
 
+function parcelShapeMetrics(area: number | null, dimensions: ReturnType<typeof parcelDimensions>) {
+  if (!area || !dimensions) return { rectangularity: null, irregularity: "unknown" as const, widthDepthAreaDifferencePercent: null };
+  const rectangleArea = dimensions.frontage * dimensions.depth;
+  const rectangularity = rectangleArea > 0 ? Math.min(1, area / rectangleArea) : null;
+  const widthDepthAreaDifferencePercent = rectangleArea > 0 ? Math.round(((rectangleArea - area) / area) * 1000) / 10 : null;
+  const irregularity = rectangularity === null ? "unknown" as const
+    : rectangularity >= 0.88 ? "regular" as const
+      : rectangularity >= 0.72 ? "possibly_irregular" as const
+        : "irregular" as const;
+  return {
+    rectangularity: rectangularity === null ? null : Math.round(rectangularity * 1000) / 1000,
+    irregularity,
+    widthDepthAreaDifferencePercent,
+  };
+}
+
 function planningField(value: unknown, sourceLayer: string, attributes: Record<string, unknown> | null, status?: string) {
   return {
     value: value ?? null,
@@ -234,6 +263,24 @@ type ProjectInputs = {
   excavationBoundaryDistance?: number;
   poolCapacity?: number;
 };
+
+function calculateRegulatoryScreen(input: {
+  [key: string]: unknown;
+  mappedGfaCap: number | null;
+  proposedExcavationDepth: number;
+  excavationBoundaryDistance: number;
+  estimatedCost: number;
+  projectGoal: string;
+}) {
+  return {
+    controls: [
+      { value: "Setbacks and site coverage were not returned as complete numeric controls. Confirm the council DCP or applicable code.", status: "review" },
+      { value: input.mappedGfaCap ? `${input.mappedGfaCap.toLocaleString()} m² mapped FSR arithmetic before other controls.` : "No numeric FSR map hit; no floor-area limit has been inferred.", status: input.mappedGfaCap ? "screened" : "review" },
+      { value: `Client-entered cut ${input.proposedExcavationDepth} m at ${input.excavationBoundaryDistance} m from a boundary; survey, geotechnical and structural review required.`, status: "review" },
+      { value: input.projectGoal === "renovation" && input.estimatedCost > 0 ? "Confirm the current BASIX threshold and scope against the client-entered budget." : "Confirm current project-specific BASIX and sustainability requirements.", status: "review" },
+    ],
+  };
+}
 
 function projectGuidance(zone: string, heritage: boolean, inputs: ProjectInputs, mappedHeight: number | null, mappedFsr: number | null, council: string, officialArea: number | null) {
   const codeZone = zone.toUpperCase();
@@ -386,7 +433,7 @@ export async function POST(request: Request) {
       f: "json",
     });
 
-    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize] = await Promise.all([
+    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize, bushfire, flooding] = await Promise.all([
       safeGetJson(`${PROPERTY_SERVICE}/query?${propertyParams}`, "property aggregate"),
       safeGetJson(`${LOT_SERVICE}/query?${lotParams}`, "cadastral lot"),
       safePlanningLayer(11, "floor-space ratio", longitude, latitude),
@@ -394,6 +441,8 @@ export async function POST(request: Request) {
       safePlanningLayer(16, "heritage", longitude, latitude),
       safePlanningLayer(19, "zoning", longitude, latitude),
       safePlanningLayer(22, "minimum lot size", longitude, latitude),
+      safeSpatialLayer(HAZARD_SERVICE, 229, "bush fire prone land", longitude, latitude),
+      safeSpatialLayer(HAZARD_SERVICE, 230, "flood planning map", longitude, latitude),
     ]);
 
     const property = propertyData?.features?.[0] as ArcFeature | undefined;
@@ -417,6 +466,7 @@ export async function POST(request: Request) {
     const calculatedGeometryAreaSqm = geometryAreaSqm(parcelRings);
     const propertyAggregateAreaSqm = positiveNumber(property?.attributes?.Shape__Area);
     const mappedParcelAreaSqm = serviceReportedAreaSqm ?? calculatedGeometryAreaSqm;
+    const shapeMetrics = parcelShapeMetrics(mappedParcelAreaSqm, dimensions);
     const areaDifferenceSqm = serviceReportedAreaSqm && calculatedGeometryAreaSqm
       ? Math.abs(serviceReportedAreaSqm - calculatedGeometryAreaSqm)
       : null;
@@ -510,6 +560,7 @@ export async function POST(request: Request) {
           ? "The NSW lot-area attribute and calculated cadastral geometry differ materially. Both values are shown and must be verified."
           : "Area is taken only from the selected NSW cadastral lot, not the broader property aggregate polygon.",
       },
+      parcelShape: shapeMetrics,
       boundary,
       parcelGeometry: parcelRings,
       lotDp,
@@ -522,6 +573,8 @@ export async function POST(request: Request) {
         fsr: fsr?.FSR ? `${fsr.FSR}:1` : null,
         minimumLotSize: lotSize?.LOT_SIZE ? `${lotSize.LOT_SIZE} ${lotSize.UNITS ?? "m²"}` : null,
         heritage: heritage ? String(heritage.H_NAME ?? heritage.LAY_CLASS ?? "Mapped heritage item/area") : null,
+        bushfire: bushfire ? String(bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped bush fire prone land") : null,
+        flooding: flooding ? String(flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped flood planning area") : null,
         numeric: {
           maxHeight: mappedHeight,
           fsr: mappedFsr,
@@ -533,6 +586,8 @@ export async function POST(request: Request) {
           fsr: `${PLANNING_SERVICE}/11`,
           heritage: `${PLANNING_SERVICE}/16`,
           minimumLotSize: `${PLANNING_SERVICE}/22`,
+          bushfire: `${HAZARD_SERVICE}/229`,
+          flooding: `${HAZARD_SERVICE}/230`,
         },
       },
       planningFields: {
@@ -565,6 +620,14 @@ export async function POST(request: Request) {
         fsr: planningField(fsr?.FSR ?? null, "Floor-space ratio layer 11", fsr),
         minimumLotSize: planningField(lotSize?.LOT_SIZE ?? null, "Minimum lot size layer 22", lotSize),
         heritage: planningField(heritage ? heritage.H_NAME ?? heritage.LAY_CLASS ?? "Mapped" : null, "Heritage layer 16", heritage, heritage ? "mapped" : "not_mapped"),
+        bushfire: {
+          ...planningField(bushfire ? bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped" : null, "Bush fire prone land layer 229", bushfire, bushfire ? "mapped" : "not_mapped"),
+          sourceName: "NSW Planning Portal Hazard layers",
+        },
+        flooding: {
+          ...planningField(flooding ? flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped" : null, "Flood planning map layer 230", flooding, flooding ? "mapped" : "not_mapped"),
+          sourceName: "NSW Planning Portal Hazard layers",
+        },
       },
       opportunities: opportunitiesForZone(zoneCode),
       guidance: projectGuidance(zoneCode, Boolean(heritage), inputs, mappedHeight, mappedFsr, council, mappedParcelAreaSqm),
@@ -573,6 +636,8 @@ export async function POST(request: Request) {
         { name: "Floor-space ratio", value: fsr?.FSR ? `${fsr.FSR}:1` : "No FSR mapped", status: fsr?.FSR ? "mapped" : "review" },
         { name: "Minimum lot size", value: lotSize?.LOT_SIZE ? `${lotSize.LOT_SIZE} ${lotSize.UNITS ?? "m²"}` : "No minimum mapped", status: lotSize?.LOT_SIZE ? "mapped" : "review" },
         { name: "Heritage", value: heritage ? String(heritage.H_NAME ?? "Mapped") : "No principal heritage layer hit", status: heritage ? "alert" : "clear" },
+        { name: "Bush fire prone land", value: bushfire ? String(bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped") : "No hazard-layer hit", status: bushfire ? "alert" : "clear" },
+        { name: "Flood planning", value: flooding ? String(flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped") : "No hazard-layer hit", status: flooding ? "alert" : "clear" },
         { name: "Excavation depth", value: "Not a statewide mapped numeric control", status: "specialist" },
         { name: "Setbacks + landscaped area", value: "Confirm council DCP / CDC standards", status: "specialist" },
       ],
@@ -592,6 +657,8 @@ export async function POST(request: Request) {
           floorSpaceRatio: fsr ? "mapped" : "not-mapped",
           heritage: heritage ? "mapped" : "not-mapped",
           minimumLotSize: lotSize ? "mapped" : "not-mapped",
+          bushfire: bushfire ? "mapped" : "not-mapped",
+          flooding: flooding ? "mapped" : "not-mapped",
         },
       },
       analysedAt: matchedAt,

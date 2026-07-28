@@ -40,13 +40,20 @@ const materialSchemes = [
 
 type SiteAnalysis = {
   matchedAddress: string;
+  fullAddress?: string;
   addressDetails?: { streetAddress: string; suburb: string; postcode: string };
   council: string;
   area: number | null;
+  mappedParcelAreaSqm?: number | null;
+  calculatedGeometryAreaSqm?: number | null;
+  parcelId?: string | null;
+  parcelGeometry?: number[][][];
+  parcelShape?: { rectangularity: number | null; irregularity: "regular" | "possibly_irregular" | "irregular" | "unknown" };
   lotDp?: string;
   siteDimensions?: { frontage: number | null; depth: number | null; source: string };
   boundary: number[][];
-  controls: { zone: string; zoneName: string; lep: string; maxHeight: string | null; fsr: string | null; minimumLotSize: string | null; heritage: string | null };
+  controls: { zone: string; zoneName: string; lep: string; maxHeight: string | null; fsr: string | null; minimumLotSize: string | null; heritage: string | null; bushfire?: string | null; flooding?: string | null };
+  planningFields?: Record<string, { value: string | number | boolean | null; sourceName: string; sourceLayer?: string; sourceFeatureId?: string | null; retrievedAt?: string; status: string }>;
   opportunities: string[][];
   constraints: { name: string; value: string; status: string }[];
   guidance: {
@@ -75,7 +82,11 @@ type QuoteProjectSnapshot = {
   existingDwelling: boolean;
   storeys: number;
   bedrooms: number;
+  bathrooms: number;
   parking: number;
+  mappedParcelArea: number | null;
+  calculatedGeometryArea: number | null;
+  parcelId: string;
   projectGoal: string;
   roadmapPath: string;
   priorities: string[];
@@ -88,6 +99,8 @@ type QuoteProjectSnapshot = {
     fsr: string;
     minimumLotSize: string;
     heritage: string;
+    bushfire: string;
+    flooding: string;
   };
 };
 
@@ -226,7 +239,7 @@ function QuoteRequestModal({ snapshot, onClose }: { snapshot: QuoteProjectSnapsh
                 <div><dt>Lot / DP</dt><dd>{snapshot.lotDp || "Not supplied"}</dd></div>
                 <div><dt>Site</dt><dd>{snapshot.landArea || "—"} m² · {snapshot.frontage || "—"}m frontage · {snapshot.depth || "—"}m depth</dd></div>
                 <div><dt>Site conditions</dt><dd>{snapshot.lotType} lot · {snapshot.slope} slope · {snapshot.existingDwelling ? "existing dwelling" : "no existing dwelling indicated"}</dd></div>
-                <div><dt>Project</dt><dd>{projectType} · {snapshot.storeys} storeys · {snapshot.bedrooms} bedrooms · {snapshot.parking} car spaces</dd></div>
+                <div><dt>Project</dt><dd>{projectType} · {snapshot.storeys} storeys · {snapshot.bedrooms} bedrooms · {snapshot.bathrooms} bathrooms · {snapshot.parking} car spaces</dd></div>
                 <div><dt>Approval route</dt><dd>{snapshot.roadmapPath.toUpperCase()} working pathway</dd></div>
                 <div><dt>Priorities</dt><dd>{snapshot.priorities.length ? snapshot.priorities.join(", ") : "Not selected"}</dd></div>
                 <div><dt>Planning check</dt><dd>{snapshot.propertyVerified ? `${snapshot.planning.zone || "Mapped"}${snapshot.planning.council ? ` · ${snapshot.planning.council} Council` : ""}` : "Not completed yet"}</dd></div>
@@ -270,6 +283,7 @@ export default function Home() {
   const [existingDwelling, setExistingDwelling] = useState(false);
   const [storeys, setStoreys] = useState(2);
   const [bedrooms, setBedrooms] = useState(4);
+  const [bathrooms, setBathrooms] = useState(2);
   const [parking, setParking] = useState(2);
   const [projectGoal, setProjectGoal] = useState<"home" | "dual" | "renovation">("home");
   const [roadmapPath, setRoadmapPath] = useState<"cdc" | "da">("da");
@@ -281,6 +295,7 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState("");
   const [quoteSnapshot, setQuoteSnapshot] = useState<QuoteProjectSnapshot | null>(null);
   const privateStreetAddress = useRef("");
+  const siteAnalysisRequestId = useRef(0);
   const projectHydrated = useRef(false);
 
   useEffect(() => {
@@ -299,6 +314,7 @@ export default function Home() {
       if (["home", "dual", "renovation"].includes(stored.ambition.project_type)) setProjectGoal(stored.ambition.project_type as "home" | "dual" | "renovation");
       if (Number(stored.ambition.storeys)) setStoreys(Number(stored.ambition.storeys));
       if (Number(stored.ambition.bedrooms)) setBedrooms(Number(stored.ambition.bedrooms));
+      if (Number(stored.ambition.bathrooms)) setBathrooms(Number(stored.ambition.bathrooms));
       if (Number(stored.ambition.parking)) setParking(Number(stored.ambition.parking));
       if (["cdc", "da"].includes(stored.roadmap.approval_pathway.toLowerCase())) setRoadmapPath(stored.roadmap.approval_pathway.toLowerCase() as "cdc" | "da");
       if (stored.ambition.special_rooms.length) setPriorities(stored.ambition.special_rooms);
@@ -311,13 +327,52 @@ export default function Home() {
     if (!projectHydrated.current) return;
     const stored = readStoredProject();
     const next = mergeProjectData(stored, {
-      property: { ...stored.property, address: privateStreetAddress.current || streetAddress, suburb, postcode, lot_details: lotDp, site_area: String(landArea), site_width: String(frontage), site_depth: String(depth), lot_type: lotType, slope, existing_structures: existingDwelling ? "Existing dwelling" : "" },
-      ambition: { ...stored.ambition, project_type: projectGoal, storeys: String(storeys), bedrooms: String(bedrooms), parking: String(parking), special_rooms: priorities },
+      property: {
+        ...stored.property,
+        address: privateStreetAddress.current || streetAddress,
+        suburb,
+        postcode,
+        lot_details: lotDp,
+        site_area: String(landArea),
+        client_site_area: String(landArea),
+        mapped_site_area: analysis?.mappedParcelAreaSqm ? String(analysis.mappedParcelAreaSqm) : stored.property.mapped_site_area,
+        calculated_geometry_area: analysis?.calculatedGeometryAreaSqm ? String(analysis.calculatedGeometryAreaSqm) : stored.property.calculated_geometry_area,
+        selected_parcel_id: analysis?.parcelId || stored.property.selected_parcel_id,
+        parcel_geometry_source: analysis?.parcelGeometry?.length ? "NSW Land Parcel Property Theme · cadastral lot layer 8" : stored.property.parcel_geometry_source,
+        parcel_geometry: analysis?.parcelGeometry || stored.property.parcel_geometry,
+        parcel_rectangularity: analysis?.parcelShape?.rectangularity ? String(analysis.parcelShape.rectangularity) : stored.property.parcel_rectangularity,
+        parcel_irregularity: analysis?.parcelShape?.irregularity || stored.property.parcel_irregularity,
+        site_width: String(frontage),
+        site_depth: String(depth),
+        lot_type: lotType,
+        slope,
+        existing_structures: existingDwelling ? "Existing dwelling" : "",
+      },
+      ambition: { ...stored.ambition, project_type: projectGoal, storeys: String(storeys), bedrooms: String(bedrooms), bathrooms: String(bathrooms), parking: String(parking), special_rooms: priorities },
       roadmap: { ...stored.roadmap, approval_pathway: roadmapPath.toUpperCase() },
-      planning: analysis ? { ...stored.planning, council: analysis.council, zoning: analysis.controls.zone, zone_name: analysis.controls.zoneName, planning_instrument: analysis.controls.lep, height_limit: analysis.controls.maxHeight || "", floor_space_ratio: analysis.controls.fsr || "", minimum_lot_size: analysis.controls.minimumLotSize || "", heritage: analysis.controls.heritage || "" } : stored.planning,
+      planning: analysis ? {
+        ...stored.planning,
+        council: analysis.council,
+        zoning: analysis.controls.zone,
+        zone_name: analysis.controls.zoneName,
+        planning_instrument: analysis.controls.lep,
+        height_limit: analysis.controls.maxHeight || "",
+        floor_space_ratio: analysis.controls.fsr || "",
+        minimum_lot_size: analysis.controls.minimumLotSize || "",
+        heritage: analysis.controls.heritage || "",
+        bushfire: analysis.controls.bushfire || "",
+        flooding: analysis.controls.flooding || "",
+        source_values: {
+          ...stored.planning.source_values,
+          ...(analysis.planningFields ? Object.fromEntries(Object.entries(analysis.planningFields).map(([key, value]) => {
+            const contractKey = key === "parcelArea" ? "parcel_area" : key === "height" ? "height_limit" : key === "minimumLotSize" ? "minimum_lot_size" : key;
+            return [contractKey, { value: value.value, sourceName: value.sourceName, sourceLayer: value.sourceLayer, sourceFeatureId: value.sourceFeatureId || undefined, retrievedAt: value.retrievedAt, status: value.status === "mapped" ? "mapped" : "missing" }];
+          })) : {}),
+        },
+      } : stored.planning,
     });
     writeStoredProject(next);
-  }, [streetAddress, suburb, postcode, lotDp, landArea, frontage, depth, lotType, slope, existingDwelling, projectGoal, storeys, bedrooms, parking, roadmapPath, priorities, analysis]);
+  }, [streetAddress, suburb, postcode, lotDp, landArea, frontage, depth, lotType, slope, existingDwelling, projectGoal, storeys, bedrooms, bathrooms, parking, roadmapPath, priorities, analysis]);
 
   useEffect(() => {
     const update = () => {
@@ -404,8 +459,24 @@ export default function Home() {
   }, [analysis]);
   const togglePriority = (priority: string) => setPriorities((current) => current.includes(priority) ? current.filter((item) => item !== priority) : [...current, priority]);
   const updateStreetAddress = (value: string) => {
+    siteAnalysisRequestId.current += 1;
     privateStreetAddress.current = "";
     setStreetAddress(value);
+    setLotDp("");
+    setAnalysis(null);
+    setPropertyVerified(false);
+  };
+  const updateSuburb = (value: string) => {
+    siteAnalysisRequestId.current += 1;
+    setSuburb(value);
+    setLotDp("");
+    setAnalysis(null);
+    setPropertyVerified(false);
+  };
+  const updatePostcode = (value: string) => {
+    siteAnalysisRequestId.current += 1;
+    setPostcode(value.replace(/\D/g, "").slice(0, 4));
+    setLotDp("");
     setAnalysis(null);
     setPropertyVerified(false);
   };
@@ -422,6 +493,7 @@ export default function Home() {
         projectGoal,
         storeys: String(storeys),
         bedrooms: String(bedrooms),
+        bathrooms: String(bathrooms),
         parking: String(parking),
       }));
     } catch {
@@ -430,6 +502,7 @@ export default function Home() {
     window.location.assign("/simulator?source=intro");
   };
   const analyseProperty = async () => {
+    const requestId = ++siteAnalysisRequestId.current;
     setAnalysisLoading(true);
     setAnalysisError("");
     setAnalysis(null);
@@ -437,27 +510,28 @@ export default function Home() {
       const response = await fetch("/api/site-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ streetAddress: privateStreetAddress.current || streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, parking, projectGoal }),
+        body: JSON.stringify({ streetAddress: privateStreetAddress.current || streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, bathrooms, parking, projectGoal }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Property analysis failed.");
+      if (requestId !== siteAnalysisRequestId.current) return;
       const safeSuburb = result.addressDetails?.suburb ?? suburb;
       const safePostcode = result.addressDetails?.postcode ?? postcode;
-      privateStreetAddress.current = result.matchedAddress;
+      privateStreetAddress.current = result.fullAddress || result.matchedAddress;
       setStreetAddress(`Private property — ${safeSuburb}, NSW ${safePostcode}`);
       setAnalysis({ ...result, matchedAddress: [safeSuburb, safePostcode && `NSW ${safePostcode}`].filter(Boolean).join(", ") });
       setSuburb(safeSuburb);
       setPostcode(safePostcode);
       if (result.lotDp) setLotDp(result.lotDp);
-      if (result.area) setLandArea(Math.round(result.area));
       if (result.siteDimensions?.frontage) setFrontage(result.siteDimensions.frontage);
       if (result.siteDimensions?.depth) setDepth(result.siteDimensions.depth);
       setPropertyVerified(true);
     } catch (error) {
+      if (requestId !== siteAnalysisRequestId.current) return;
       setPropertyVerified(false);
       setAnalysisError(error instanceof Error ? error.message : "Property analysis failed.");
     } finally {
-      setAnalysisLoading(false);
+      if (requestId === siteAnalysisRequestId.current) setAnalysisLoading(false);
     }
   };
   const projectAddress = [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
@@ -475,7 +549,11 @@ export default function Home() {
     existingDwelling,
     storeys,
     bedrooms,
+    bathrooms,
     parking,
+    mappedParcelArea: analysis?.mappedParcelAreaSqm ?? analysis?.area ?? null,
+    calculatedGeometryArea: analysis?.calculatedGeometryAreaSqm ?? null,
+    parcelId: analysis?.parcelId ?? "",
     projectGoal,
     roadmapPath,
     priorities,
@@ -488,6 +566,8 @@ export default function Home() {
       fsr: analysis?.controls.fsr ?? "",
       minimumLotSize: analysis?.controls.minimumLotSize ?? "",
       heritage: analysis?.controls.heritage ?? "",
+      bushfire: analysis?.controls.bushfire ?? "",
+      flooding: analysis?.controls.flooding ?? "",
     },
   });
   const roadmap = useMemo(() => {
@@ -719,11 +799,11 @@ export default function Home() {
             <span className="stage-number">01 / Establish the ground truth</span>
             <h3>Start with the land,<br />not assumptions.</h3>
             <p>Enter one complete NSW address. It is used privately to resolve the official parcel; the generated overview shows only the suburb and postcode.</p>
-            <div className="input-grid"><label><span>Street address <small>private lookup only</small></span><input autoComplete="street-address" value={streetAddress} onChange={(event) => updateStreetAddress(event.target.value)} placeholder="Enter the property street address" /></label><label><span>Suburb</span><input value={suburb} onChange={(event) => { setSuburb(event.target.value); setAnalysis(null); setPropertyVerified(false); }} placeholder="Your NSW suburb" /></label><label><span>Postcode</span><input value={postcode} maxLength={4} onChange={(event) => { setPostcode(event.target.value.replace(/\\D/g, "")); setAnalysis(null); setPropertyVerified(false); }} placeholder="NSW postcode" /></label></div>
+            <div className="input-grid"><label><span>Street address <small>private lookup only</small></span><input autoComplete="street-address" value={streetAddress} onChange={(event) => updateStreetAddress(event.target.value)} placeholder="Enter the property street address" /></label><label><span>Suburb</span><input value={suburb} onChange={(event) => updateSuburb(event.target.value)} placeholder="Your NSW suburb" /></label><label><span>Postcode</span><input value={postcode} maxLength={4} onChange={(event) => updatePostcode(event.target.value)} placeholder="NSW postcode" /></label></div>
             <div className="input-grid three"><label><span>Plot area</span><input type="number" min="1" value={landArea} onChange={(event) => setLandArea(Number(event.target.value))} /></label><label><span>Frontage (m)</span><input type="number" min="1" value={frontage} onChange={(event) => setFrontage(Number(event.target.value))} /></label><label><span>Approx. depth (m)</span><input type="number" min="1" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label></div>
             <div className="input-grid three"><label><span>Lot / DP <small>optional</small></span><input value={lotDp} onChange={(event) => setLotDp(event.target.value)} placeholder="Lot 12 / DP 123456" /></label><label><span>Site slope</span><select value={slope} onChange={(event) => setSlope(event.target.value as typeof slope)}><option value="flat">Flat</option><option value="gentle">Gentle</option><option value="steep">Steep</option></select></label><label><span>Lot type</span><select value={lotType} onChange={(event) => setLotType(event.target.value as typeof lotType)}><option value="standard">Standard</option><option value="corner">Corner</option><option value="battleaxe">Battle-axe</option></select></label></div>
             <div className="build-choice">{([['home','New home'],['dual','Dual occupancy'],['renovation','Renovate + extend']] as const).map(([value,label]) => <button type="button" className={projectGoal === value ? "active" : ""} onClick={() => setProjectGoal(value)} key={value}>{label}</button>)}</div>
-            <div className="input-grid three"><label><span>Storeys</span><input type="number" min="1" max="4" value={storeys} onChange={(event) => setStoreys(Number(event.target.value))} /></label><label><span>Bedrooms</span><input type="number" min="1" value={bedrooms} onChange={(event) => setBedrooms(Number(event.target.value))} /></label><label><span>Car spaces</span><input type="number" min="0" value={parking} onChange={(event) => setParking(Number(event.target.value))} /></label></div>
+            <div className="input-grid three"><label><span>Storeys</span><input type="number" min="1" max="4" value={storeys} onChange={(event) => setStoreys(Number(event.target.value))} /></label><label><span>Bedrooms</span><input type="number" min="1" value={bedrooms} onChange={(event) => setBedrooms(Number(event.target.value))} /></label><label><span>Bathrooms (total)</span><input type="number" min="1" value={bathrooms} onChange={(event) => setBathrooms(Number(event.target.value))} /></label></div><div className="input-grid three"><label><span>Car spaces</span><input type="number" min="0" value={parking} onChange={(event) => setParking(Number(event.target.value))} /></label></div>
             <label className="toggle-field"><input type="checkbox" checked={existingDwelling} onChange={(event) => setExistingDwelling(event.target.checked)} /><span>Existing dwelling on the site</span></label>
             <button className="analyse-property" disabled={!streetAddress || !suburb || postcode.length !== 4 || analysisLoading} onClick={analyseProperty}>{analysisLoading ? <><i className="analysis-spinner" />Reading NSW planning layers…</> : <>Show what is realistic <span>→</span></>}</button>
             {analysisError && <div className="analysis-error"><b>We couldn’t complete that address.</b><span>{analysisError}</span></div>}

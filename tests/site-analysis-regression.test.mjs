@@ -3,24 +3,23 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const apiPath = new URL("../app/api/site-analysis/route.ts", import.meta.url);
-const simulatorPath = new URL("../app/simulator/page.tsx", import.meta.url);
+const simulatorPath = new URL("../app/page.tsx", import.meta.url);
 
 const [apiSource, simulatorSource] = await Promise.all([
   readFile(apiPath, "utf8"),
   readFile(simulatorPath, "utf8"),
 ]);
 
-test("matches only after one complete NSW address has been entered", () => {
-  assert.match(simulatorSource, /const completeNSWAddress/);
-  assert.match(simulatorSource, /street number, street name, suburb and four-digit postcode/);
-  assert.match(simulatorSource, /\[form\.streetAddress, lookupAddress\]/);
+test("matches only after the complete NSW address fields have been entered", () => {
+  assert.match(apiSource, /function parseAddress/);
+  assert.match(apiSource, /four-digit postcode/);
+  assert.match(simulatorSource, /postcode\.length !== 4/);
 });
 
 test("prevents stale address requests and stale lot identity", () => {
-  assert.match(simulatorSource, /const lookupRequestId = useRef\(0\)/);
-  assert.match(simulatorSource, /new AbortController\(\)/);
-  assert.match(simulatorSource, /requestId !== lookupRequestId\.current/);
-  assert.match(simulatorSource, /changesPropertyIdentity \? \{ lotDp: "" \}/);
+  assert.match(simulatorSource, /const siteAnalysisRequestId = useRef\(0\)/);
+  assert.match(simulatorSource, /requestId !== siteAnalysisRequestId\.current/);
+  assert.match(simulatorSource, /setLotDp\(""\)/);
 });
 
 test("uses the selected cadastral lot for parcel area instead of the broader property polygon", () => {
@@ -37,5 +36,6 @@ test("keeps client area separate and makes optional planning layers non-fatal", 
   assert.match(apiSource, /surveyedAreaSqm: null/);
   assert.match(apiSource, /safePlanningLayer\(11, "floor-space ratio"/);
   assert.match(apiSource, /safePlanningLayer\(22, "minimum lot size"/);
-  assert.match(simulatorSource, /knownLandArea: current\.knownLandArea/);
+  assert.match(simulatorSource, /client_site_area: String\(landArea\)/);
+  assert.doesNotMatch(simulatorSource, /setLandArea\(Math\.round\(result\.area\)\)/);
 });
