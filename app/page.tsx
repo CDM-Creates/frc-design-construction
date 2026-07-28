@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { mergeProjectData, readStoredProject, writeStoredProject } from "./lib/project-data";
 
 const capabilities = [
   ["01", "Feasibility", "Planning controls, site potential and a clear path before you commit."],
@@ -18,8 +19,6 @@ const projects = [
   { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", folio: "/projects/folios/market-street-public-folio.pdf", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor planning study", "Isometric study"] },
   { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", folio: "/projects/folios/glenda-public-folio.pdf", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Demolition study", "Elevation and section study"] },
   { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", folio: "/projects/folios/good-shepherd-public-folio.pdf", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Exterior and interior studies", "Site and floor planning study", "Isometric study"] },
-  { slug: "wills-road", name: "Wills Road Pool House", location: "Long Point, NSW", type: "Pool + landscape", image: "/projects/ai/wills-road.png", folio: "/projects/folios/wills-road-public-folio.pdf", gallery: ["/projects/ai/wills-road.png", "/projects/gallery/wills-road/01.jpg", "/projects/gallery/wills-road/02.jpg", "/projects/gallery/wills-road/03.jpg"], labels: ["AI-enhanced site study", "Site development plan", "Pool plan and section", "Pool and landscape isometric"] },
-  { slug: "kingsford", name: "Kingsford Residences", location: "Kingsford, NSW", type: "Multi-residential", image: "/projects/ai/kingsford.png", folio: "/projects/folios/kingsford-public-folio.pdf", gallery: ["/projects/ai/kingsford.png", "/projects/gallery/kingsford/01.jpg", "/projects/gallery/kingsford/02.jpg", "/projects/gallery/kingsford/03.jpg"], labels: ["AI-enhanced perspective", "Perspective studies", "Ground floor planning study", "Elevation study"] },
 ];
 
 const projectStories: Record<string, string> = {
@@ -31,8 +30,6 @@ const projectStories: Record<string, string> = {
   "market-street": "An existing home reworked through a precise addition, giving old and new a single confident architectural character.",
   glenda: "A compact residential addition that finds more space, light and connection without losing the familiarity of home.",
   "good-shepherd": "A community room designed for gathering, conversation and quiet flexibility within a restrained material envelope.",
-  "wills-road": "A pool and landscape pavilion that turns a generous rural site into a connected place for recreation, retreat and outdoor living.",
-  kingsford: "A multi-residential project composed around efficient planning, durable materials and a considered relationship to the street.",
 };
 
 const materialSchemes = [
@@ -63,6 +60,189 @@ type SiteAnalysis = {
   };
   analysedAt: string;
 };
+
+type QuoteProjectSnapshot = {
+  sourceStep: string;
+  address: string;
+  suburb: string;
+  postcode: string;
+  lotDp: string;
+  landArea: number;
+  frontage: number;
+  depth: number;
+  lotType: string;
+  slope: string;
+  existingDwelling: boolean;
+  storeys: number;
+  bedrooms: number;
+  parking: number;
+  projectGoal: string;
+  roadmapPath: string;
+  priorities: string[];
+  propertyVerified: boolean;
+  planning: {
+    council: string;
+    zone: string;
+    zoneName: string;
+    maxHeight: string;
+    fsr: string;
+    minimumLotSize: string;
+    heritage: string;
+  };
+};
+
+function QuoteRoadmapCta({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="roadmap-cta">
+      <div>
+        <small>Your highest-leverage next move</small>
+        <strong>Stage 1 · Property check</strong>
+        <p>Confirm the NSW parcel, zoning and mapped site facts for the address you entered.</p>
+        <strong>Stage 2 · Project brief</strong>
+        <p>Your client inputs stay exactly as entered: build type, site dimensions, goals, budget, timing and approvals.</p>
+        <strong>Stage 3 · Request a quote</strong>
+        <p><b>Review the details already supplied, add your contact information and send the complete brief directly to the head architect.</b></p>
+      </div>
+      <button type="button" className="roadmap-quote-trigger" onClick={onOpen}>Request a quote<span>↗</span></button>
+    </div>
+  );
+}
+
+function QuoteRequestModal({ snapshot, onClose }: { snapshot: QuoteProjectSnapshot; onClose: () => void }) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [company, setCompany] = useState("");
+  const [preferredContact, setPreferredContact] = useState("Email");
+  const [budget, setBudget] = useState("");
+  const [timeline, setTimeline] = useState("");
+  const [message, setMessage] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [website, setWebsite] = useState("");
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const stored = readStoredProject();
+    const hydrate = window.setTimeout(() => {
+      setFullName(stored.client.name);
+      setEmail(stored.client.email);
+      setPhone(stored.client.phone);
+      setCompany(stored.client.company);
+      setPreferredContact(stored.client.preferred_contact_method || "Email");
+      setBudget(stored.roadmap.budget);
+      setTimeline(stored.roadmap.completion_goal || stored.roadmap.preferred_start_date);
+      setMessage(stored.simulation.client_description || stored.roadmap.additional_notes);
+    }, 0);
+    return () => window.clearTimeout(hydrate);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && status !== "submitting") onClose();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, status]);
+
+  const submitQuote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!confirmed) {
+      setStatus("error");
+      setErrorMessage("Please confirm that the carried-forward project details are correct.");
+      return;
+    }
+
+    setStatus("submitting");
+    setErrorMessage("");
+    const stored = readStoredProject();
+    writeStoredProject(mergeProjectData(stored, {
+      client: { ...stored.client, name: fullName, email, phone, company, preferred_contact_method: preferredContact },
+      roadmap: { ...stored.roadmap, budget: budget || stored.roadmap.budget, completion_goal: timeline || stored.roadmap.completion_goal },
+      simulation: { ...stored.simulation, client_description: message || stored.simulation.client_description },
+    }));
+    try {
+      const response = await fetch("/api/quote-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, phone, company, preferredContact, budget, timeline, message, confirmed, website, project: snapshot }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "The quote request could not be sent.");
+      setStatus("success");
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage(error instanceof Error ? error.message : "The quote request could not be sent.");
+    }
+  };
+
+  const projectType = snapshot.projectGoal === "home" ? "New home" : snapshot.projectGoal === "dual" ? "Dual occupancy" : "Major renovation";
+  const suppliedAddress = snapshot.address || [snapshot.suburb, snapshot.postcode && `NSW ${snapshot.postcode}`].filter(Boolean).join(", ") || "Not supplied";
+
+  return (
+    <div className="quote-modal" role="dialog" aria-modal="true" aria-labelledby="quote-modal-title" onMouseDown={(event) => { if (event.target === event.currentTarget && status !== "submitting") onClose(); }}>
+      <section className="quote-modal-panel">
+        <header className="quote-modal-head">
+          <div><span>FRC · Private project enquiry</span><h2 id="quote-modal-title">Request an architectural quote.</h2><p>Only complete the essentials below. Everything already entered in Property and Ambition has been carried into this request.</p></div>
+          <button type="button" aria-label="Close quote request" onClick={onClose} disabled={status === "submitting"}>Close ×</button>
+        </header>
+
+        {status === "success" ? <div className="quote-success"><i>✓</i><span>Request sent</span><h3>Your project brief is now with the head architect.</h3><p>FRC can reply using the contact details you supplied. No project information needs to be re-entered.</p><button type="button" onClick={onClose}>Return to the project starter <span>→</span></button></div> :
+        <form onSubmit={submitQuote}>
+          <div className="quote-form-columns">
+            <div className="quote-fields">
+              <section>
+                <span className="quote-section-label">01 / Essential information</span>
+                <div className="quote-input-grid">
+                  <label><span>Full name *</span><input required autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Your full name" /></label>
+                  <label><span>Email address *</span><input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
+                  <label><span>Phone number *</span><input required type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Best contact number" /></label>
+                </div>
+              </section>
+
+              <section>
+                <span className="quote-section-label">02 / Optional information</span>
+                <div className="quote-input-grid two">
+                  <label><span>Company / organisation</span><input value={company} onChange={(event) => setCompany(event.target.value)} placeholder="Optional" /></label>
+                  <label><span>Preferred contact</span><select value={preferredContact} onChange={(event) => setPreferredContact(event.target.value)}><option>Email</option><option>Phone call</option><option>Text message</option></select></label>
+                  <label><span>Indicative budget</span><input value={budget} onChange={(event) => setBudget(event.target.value)} placeholder="e.g. $900k–$1.2m" /></label>
+                  <label><span>Ideal timing</span><input value={timeline} onChange={(event) => setTimeline(event.target.value)} placeholder="e.g. Design this year" /></label>
+                </div>
+                <label className="quote-message"><span>What would you like to do? *</span><textarea required rows={5} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Describe the outcome you want, what is most important, and any questions for the architect." /></label>
+              </section>
+            </div>
+
+            <aside className="quote-review">
+              <span className="quote-section-label">03 / Details already supplied</span>
+              <h3>Your project brief</h3>
+              <dl>
+                <div><dt>Started from</dt><dd>{snapshot.sourceStep}</dd></div>
+                <div><dt>Property</dt><dd>{suppliedAddress}</dd></div>
+                <div><dt>Lot / DP</dt><dd>{snapshot.lotDp || "Not supplied"}</dd></div>
+                <div><dt>Site</dt><dd>{snapshot.landArea || "—"} m² · {snapshot.frontage || "—"}m frontage · {snapshot.depth || "—"}m depth</dd></div>
+                <div><dt>Site conditions</dt><dd>{snapshot.lotType} lot · {snapshot.slope} slope · {snapshot.existingDwelling ? "existing dwelling" : "no existing dwelling indicated"}</dd></div>
+                <div><dt>Project</dt><dd>{projectType} · {snapshot.storeys} storeys · {snapshot.bedrooms} bedrooms · {snapshot.parking} car spaces</dd></div>
+                <div><dt>Approval route</dt><dd>{snapshot.roadmapPath.toUpperCase()} working pathway</dd></div>
+                <div><dt>Priorities</dt><dd>{snapshot.priorities.length ? snapshot.priorities.join(", ") : "Not selected"}</dd></div>
+                <div><dt>Planning check</dt><dd>{snapshot.propertyVerified ? `${snapshot.planning.zone || "Mapped"}${snapshot.planning.council ? ` · ${snapshot.planning.council} Council` : ""}` : "Not completed yet"}</dd></div>
+              </dl>
+              <label className={`quote-confirmation ${confirmed ? "confirmed" : ""}`}><input required type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span><b>Are all these details correct?</b><small>I have reviewed the carried-forward project information and confirm it can be sent to the head architect.</small></span></label>
+            </aside>
+          </div>
+
+          <label className="quote-honeypot" aria-hidden="true"><span>Website</span><input tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
+          {status === "error" && <div className="quote-submit-error" role="alert">{errorMessage}</div>}
+          <footer className="quote-submit-bar"><p>The request is emailed privately to the head architect. Your information is used only to respond to this project enquiry.</p><button type="submit" disabled={status === "submitting"}>{status === "submitting" ? "Sending project brief…" : "Send to the head architect"}<span>→</span></button></footer>
+        </form>}
+      </section>
+    </div>
+  );
+}
 
 export default function Home() {
   const storyRef = useRef<HTMLElement>(null);
@@ -99,7 +279,45 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<SiteAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [quoteSnapshot, setQuoteSnapshot] = useState<QuoteProjectSnapshot | null>(null);
   const privateStreetAddress = useRef("");
+  const projectHydrated = useRef(false);
+
+  useEffect(() => {
+    const stored = readStoredProject();
+    const hydrate = window.setTimeout(() => {
+      setStreetAddress(stored.property.address);
+      setSuburb(stored.property.suburb);
+      setPostcode(stored.property.postcode);
+      setLotDp(stored.property.lot_details);
+      if (Number(stored.property.site_area)) setLandArea(Number(stored.property.site_area));
+      if (Number(stored.property.site_width)) setFrontage(Number(stored.property.site_width));
+      if (Number(stored.property.site_depth)) setDepth(Number(stored.property.site_depth));
+      if (["standard", "corner", "battleaxe"].includes(stored.property.lot_type)) setLotType(stored.property.lot_type as "standard" | "corner" | "battleaxe");
+      if (["flat", "gentle", "steep"].includes(stored.property.slope)) setSlope(stored.property.slope as "flat" | "gentle" | "steep");
+      setExistingDwelling(Boolean(stored.property.existing_structures));
+      if (["home", "dual", "renovation"].includes(stored.ambition.project_type)) setProjectGoal(stored.ambition.project_type as "home" | "dual" | "renovation");
+      if (Number(stored.ambition.storeys)) setStoreys(Number(stored.ambition.storeys));
+      if (Number(stored.ambition.bedrooms)) setBedrooms(Number(stored.ambition.bedrooms));
+      if (Number(stored.ambition.parking)) setParking(Number(stored.ambition.parking));
+      if (["cdc", "da"].includes(stored.roadmap.approval_pathway.toLowerCase())) setRoadmapPath(stored.roadmap.approval_pathway.toLowerCase() as "cdc" | "da");
+      if (stored.ambition.special_rooms.length) setPriorities(stored.ambition.special_rooms);
+      projectHydrated.current = true;
+    }, 0);
+    return () => window.clearTimeout(hydrate);
+  }, []);
+
+  useEffect(() => {
+    if (!projectHydrated.current) return;
+    const stored = readStoredProject();
+    const next = mergeProjectData(stored, {
+      property: { ...stored.property, address: privateStreetAddress.current || streetAddress, suburb, postcode, lot_details: lotDp, site_area: String(landArea), site_width: String(frontage), site_depth: String(depth), lot_type: lotType, slope, existing_structures: existingDwelling ? "Existing dwelling" : "" },
+      ambition: { ...stored.ambition, project_type: projectGoal, storeys: String(storeys), bedrooms: String(bedrooms), parking: String(parking), special_rooms: priorities },
+      roadmap: { ...stored.roadmap, approval_pathway: roadmapPath.toUpperCase() },
+      planning: analysis ? { ...stored.planning, council: analysis.council, zoning: analysis.controls.zone, zone_name: analysis.controls.zoneName, planning_instrument: analysis.controls.lep, height_limit: analysis.controls.maxHeight || "", floor_space_ratio: analysis.controls.fsr || "", minimum_lot_size: analysis.controls.minimumLotSize || "", heritage: analysis.controls.heritage || "" } : stored.planning,
+    });
+    writeStoredProject(next);
+  }, [streetAddress, suburb, postcode, lotDp, landArea, frontage, depth, lotType, slope, existingDwelling, projectGoal, storeys, bedrooms, parking, roadmapPath, priorities, analysis]);
 
   useEffect(() => {
     const update = () => {
@@ -243,6 +461,35 @@ export default function Home() {
     }
   };
   const projectAddress = [suburb, postcode && `NSW ${postcode}`].filter(Boolean).join(", ");
+  const buildQuoteSnapshot = (sourceStep: string): QuoteProjectSnapshot => ({
+    sourceStep,
+    address: privateStreetAddress.current || (streetAddress.startsWith("Private property") ? "" : streetAddress),
+    suburb,
+    postcode,
+    lotDp,
+    landArea,
+    frontage,
+    depth,
+    lotType,
+    slope,
+    existingDwelling,
+    storeys,
+    bedrooms,
+    parking,
+    projectGoal,
+    roadmapPath,
+    priorities,
+    propertyVerified,
+    planning: {
+      council: analysis?.council ?? "",
+      zone: analysis?.controls.zone ?? "",
+      zoneName: analysis?.controls.zoneName ?? "",
+      maxHeight: analysis?.controls.maxHeight ?? "",
+      fsr: analysis?.controls.fsr ?? "",
+      minimumLotSize: analysis?.controls.minimumLotSize ?? "",
+      heritage: analysis?.controls.heritage ?? "",
+    },
+  });
   const roadmap = useMemo(() => {
     const approvalWeeks = roadmapPath === "cdc" ? "6-10 weeks" : "4-8 months";
     const designWeeks = projectGoal === "renovation" ? "8-12 weeks" : projectGoal === "dual" ? "10-16 weeks" : "8-14 weeks";
@@ -428,8 +675,8 @@ export default function Home() {
       </section>
 
       <section className="estimator" id="estimate">
-        <div className="section-kicker">FRC Project Intelligence · Live model</div>
-        <div className="estimator-head"><h2>Price the pathway.<br />See every <em>move.</em></h2><p>A live pre-fee model grounded in construction value, typology, approval effort, site risk and service depth—not a generic square-metre calculator.</p></div>
+        <div className="section-kicker">Quick project fee guide</div>
+        <div className="estimator-head"><h2>Estimate the likely architecture fee.<br />Keep the inputs you already provided.</h2><p>Based on your selected project type, service scope, approval pathway, site conditions and construction value. This is a realistic starting point informed by current NSW planning practice, not a generic square-metres guess.</p></div>
         <div className="estimator-console">
           <aside className="estimate-config">
             <div className="console-label"><span>01</span><b>Build your scenario</b><small>All values update live</small></div>
@@ -456,8 +703,8 @@ export default function Home() {
               <div className="phase-list">{estimate.phaseWeights.map(([name, weight], index) => <div key={name}><span><i>{String(index + 1).padStart(2, "0")}</i>{name}</span><b>{formatMoney(estimate.architecture * Number(weight))}</b></div>)}</div>
             </div>
             <div className="total-outlook"><span>Working project-cost outlook <small>construction + architecture{consultants ? " + consultant allowance" : ""}</small></span><strong>{formatMoney(buildCost * 1000 + estimate.architecture + estimate.consultantAllowance)}</strong></div>
-            <button className="proposal-button" onClick={() => document.querySelector("#quote")?.scrollIntoView()}>Turn this scenario into a tailored proposal <span>↗</span></button>
-            <p className="estimate-disclaimer">Decision-support estimate only, not a quotation. It excludes authority charges, specialist reports outside the allowance, interior procurement, builder preliminaries, escalation and latent conditions. Final fees follow a project-specific brief and site review.</p>
+            <button className="proposal-button" onClick={() => document.querySelector("#quote")?.scrollIntoView()}>Request a quote <span>↗</span></button>
+            <p className="estimate-disclaimer">This is a decision-support estimate only, not a fixed quote. It shows a realistic architecture fee range and the likely consultant allowance for your selected project settings.</p>
           </div>
         </div>
       </section>
@@ -466,7 +713,8 @@ export default function Home() {
         <header className="starter-head"><div><span className="section-kicker">FRC Project Starter · Live workspace</span><h2>Your land.<br />Your <em>roadmap.</em></h2></div><p>Turn a property into an actionable project brief. Confirm the official parcel, shape the ambition and leave with a tailored path from due diligence to construction.</p></header>
         <nav className="starter-progress" aria-label="Project setup progress">{[["01", "Property"], ["02", "Ambition"], ["03", "Roadmap"]].map(([number, label], index) => <button key={number} className={setupStep === index + 1 ? "active" : setupStep > index + 1 ? "done" : ""} onClick={() => setSetupStep(index + 1)}><i>{setupStep > index + 1 ? "✓" : number}</i><span>{label}</span></button>)}</nav>
 
-        {setupStep === 1 && <div className="starter-stage property-stage">
+        {setupStep === 1 && <>
+        <div className="starter-stage property-stage">
           <div className="property-form">
             <span className="stage-number">01 / Establish the ground truth</span>
             <h3>Start with the land,<br />not assumptions.</h3>
@@ -497,18 +745,24 @@ export default function Home() {
             </div> : <div className="parcel-empty"><i>↳</i><p><b>Your development envelope will appear here.</b><span>We’ll query the address, parcel, zoning, height, FSR, minimum lot size and principal heritage layer.</span></p></div>}
             <p>Planning snapshot only—not a planning certificate or approval. Confirm title, survey, easements, DCP controls, hazards, servicing and current legislation before design or purchase decisions.</p>
           </div>
-        </div>}
+        </div>
+        <div className="stage-quote-wrap"><QuoteRoadmapCta onOpen={() => setQuoteSnapshot(buildQuoteSnapshot("01 / Property"))} /></div>
+        </>}
 
-        {setupStep === 2 && <div className="starter-stage ambition-stage">
+        {setupStep === 2 && <>
+        <div className="starter-stage ambition-stage">
           <div className="ambition-main"><span className="stage-number">02 / Define success</span><h3>What should this<br />property become?</h3><div className="goal-grid">{([["home", "New home", "One considered residence"], ["dual", "Dual occupancy", "Two homes, one site"], ["renovation", "Major renovation", "Keep, rework and extend"]] as const).map(([value, title, note]) => <button key={value} className={projectGoal === value ? "active" : ""} onClick={() => setProjectGoal(value)}><span>{value === "home" ? "⌂" : value === "dual" ? "⌂⌂" : "↗"}</span><b>{title}</b><small>{note}</small></button>)}</div><h4>What matters most?</h4><div className="priority-cloud">{["Natural light", "Budget certainty", "Fast approval", "Resale value", "Energy performance", "Flexible living", "Landscape", "Low maintenance"].map((priority) => <button key={priority} className={priorities.includes(priority) ? "active" : ""} onClick={() => togglePriority(priority)}>{priorities.includes(priority) ? "✓ " : "+ "}{priority}</button>)}</div></div>
           <aside className="pathway-choice"><span>Likely approval route</span><button className={roadmapPath === "cdc" ? "active" : ""} onClick={() => setRoadmapPath("cdc")}><i>FAST</i><b>CDC pathway</b><small>For eligible complying development. Certifier-led and typically faster.</small></button><button className={roadmapPath === "da" ? "active" : ""} onClick={() => setRoadmapPath("da")}><i>FULL</i><b>DA pathway</b><small>Council assessment for proposals outside the complying pathway.</small></button><p>FRC will confirm the pathway after reviewing controls, title, survey and the project brief.</p><button className="stage-next" onClick={() => setSetupStep(3)}>Generate success roadmap <span>→</span></button></aside>
-        </div>}
+        </div>
+        <div className="stage-quote-wrap"><QuoteRoadmapCta onOpen={() => setQuoteSnapshot(buildQuoteSnapshot("02 / Ambition"))} /></div>
+        </>}
 
         {setupStep === 3 && <div className="starter-stage roadmap-stage">
           <div className="roadmap-summary"><span className="stage-number">03 / Roadmap generated</span><h3>From property<br />to <em>progress.</em></h3><div className="summary-address"><small>Project</small><strong>{projectAddress || "Your NSW property"}</strong><span>{lotDp || "Lot / DP pending"} · {landArea} m² · {frontage}m frontage</span></div><div className="roadmap-signal"><div><span>Project model</span><b>{projectGoal === "home" ? "New home" : projectGoal === "dual" ? "Dual occupancy" : "Major renovation"}</b></div><div><span>Working pathway</span><b>{roadmapPath.toUpperCase()}</b></div><div><span>Parcel status</span><b>{propertyVerified ? "Client verified" : "Pending"}</b></div><div><span>Success priorities</span><b>{priorities.length}</b></div></div><button className="download-roadmap" onClick={() => window.print()}>Print / save roadmap <span>↓</span></button><button className="restart-roadmap" onClick={() => setSetupStep(1)}>Edit project inputs</button></div>
-          <div className="roadmap-timeline">{roadmap.map(([number, title, detail, time], index) => <article key={number} style={{ "--delay": `${index * 55}ms` } as React.CSSProperties}><i>{number}</i><div><h4>{title}</h4><p>{detail}</p></div><span>{time}</span><b>{index === 0 && propertyVerified ? "Ready" : index === 1 ? "Start here" : "Upcoming"}</b></article>)}<div className="roadmap-cta"><div><small>Your highest-leverage next move</small><strong>Book the feasibility sprint.</strong><p>We validate the planning pathway, test the site and turn this roadmap into a project-specific proposal.</p></div><a href="mailto:hello@frcdesign.com.au?subject=Project feasibility sprint">Send this project to FRC <span>↗</span></a></div></div>
+          <div className="roadmap-timeline">{roadmap.map(([number, title, detail, time], index) => <article key={number} style={{ "--delay": `${index * 55}ms` } as React.CSSProperties}><i>{number}</i><div><h4>{title}</h4><p>{detail}</p></div><span>{time}</span><b>{index === 0 && propertyVerified ? "Ready" : index === 1 ? "Start here" : "Upcoming"}</b></article>)}<QuoteRoadmapCta onOpen={() => setQuoteSnapshot(buildQuoteSnapshot("03 / Roadmap"))} /></div>
         </div>}
       </section>
+      {quoteSnapshot && <QuoteRequestModal snapshot={quoteSnapshot} onClose={() => setQuoteSnapshot(null)} />}
       <footer><div className="brand footer-brand"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></div><p>Architecture, planning and documentation<br />for considered projects across Australia.</p><div><a href="#top">Back to top ↑</a><span>© 2026 FRC Design & Construction</span></div></footer>
     </main>
   );
