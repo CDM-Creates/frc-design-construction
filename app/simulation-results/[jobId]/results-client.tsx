@@ -170,7 +170,7 @@ export default function ResultsClient({ jobId }: { jobId: string }) {
   return (
     <main className="results-page handover-page">
       <nav className="results-nav">
-        <Link className="brand" href="/"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></Link>
+        <Link className="brand" href="/"><span className="brand-mark">FRC</span><span>DESIGN &<br />CONSTRUCTION</span></Link>
         <div><span className={`results-status ${capacity.status}`}>{capacity.status_label}</span><button type="button" onClick={() => window.print()}>Print handover</button></div>
       </nav>
 
@@ -302,7 +302,7 @@ export default function ResultsClient({ jobId }: { jobId: string }) {
 
       <section className="results-disclaimer"><b>14 / Architectural disclaimer</b><p>{report.architectural_disclaimer}</p><h3>Professional investigations</h3><List items={report.required_professional_investigations} /></section>
 
-      <footer className="results-footer"><Link className="brand" href="/"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></Link><p>Source-traceable preliminary feasibility.<br />Professional verification remains essential.</p><span>© 2026 FRC Design & Construction</span></footer>
+      <footer className="results-footer"><Link className="brand" href="/"><span className="brand-mark">FRC</span><span>DESIGN &<br />CONSTRUCTION</span></Link><p>Source-traceable preliminary feasibility.<br />Professional verification remains essential.</p><span>© 2026 FRC Design & Construction</span></footer>
     </main>
   );
 }

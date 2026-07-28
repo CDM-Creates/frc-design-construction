@@ -101,7 +101,7 @@ export async function POST(request: Request) {
     }
 
     const apiKey = process.env.RESEND_API_KEY;
-    const recipient = process.env.HEAD_ARCHITECT_EMAIL ?? "hello@frcdesign.com.au";
+    const recipient = process.env.HEAD_ARCHITECT_EMAIL ?? "sheila_delmonte@yahoo.com";
     const from = process.env.QUOTE_FROM_EMAIL ?? "FRC Website <onboarding@resend.dev>";
 
     if (!apiKey) {

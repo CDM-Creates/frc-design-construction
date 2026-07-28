@@ -6,7 +6,7 @@ export default function SimulatorComingSoon() {
       <nav>
         <Link className="brand" href="/" aria-label="FRC Design and Construction home">
           <span className="brand-mark">FRC</span>
-          <span>DESIGN +<br />CONSTRUCTION</span>
+          <span>DESIGN &<br />CONSTRUCTION</span>
         </Link>
         <Link href="/#quote">Start a project <span>↗</span></Link>
       </nav>

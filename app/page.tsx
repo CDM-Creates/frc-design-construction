@@ -1,7 +1,9 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { mergeProjectData, readStoredProject, writeStoredProject } from "./lib/project-data";
+import { projects as allProjects } from "./data/projects";
 
 const capabilities = [
   ["01", "Feasibility", "Planning controls, site potential and a clear path before you commit."],
@@ -10,27 +12,8 @@ const capabilities = [
   ["04", "Delivery", "Detailed documentation that gives builders fewer questions and you more certainty."],
 ];
 
-const projects = [
-  { slug: "betula", name: "Betula Avenue Residences", location: "VIC", type: "Dual occupancy", image: "/projects/betula/realistic-slab-projected.png", feature: true, folio: "/projects/folios/betula-public-folio.pdf", gallery: ["/projects/betula/realistic-slab-projected.png", "/projects/betula/drawing-slab-projected.png", "/projects/betula/ground-plan.jpg", "/projects/betula/level-plan.jpg"], labels: ["Photoreal exterior study", "Three-storey architectural model", "Ground floor plan", "Upper floor plan"] },
-  { slug: "crown-line", name: "Crown Line Residence", location: "Rothbury, NSW", type: "New home", image: "/projects/crown-line/realistic.png", folio: "/projects/folios/crown-line-public-folio.pdf", gallery: ["/projects/crown-line/realistic.png", "/projects/crown-line/perspective.jpg", "/projects/crown-line/floor-plan.jpg", "/projects/crown-line/elevations.jpg"], labels: ["Photoreal exterior study", "Original design perspectives", "Floor plan", "North and south elevations"] },
-  { slug: "alicante", name: "Alicante Residence", location: "Minchinbury, NSW", type: "Dual occupancy", image: "/projects/ai/alicante.png", folio: "/projects/folios/alicante-public-folio.pdf", gallery: ["/projects/ai/alicante.png", "/projects/gallery/alicante/01.jpg", "/projects/gallery/alicante/02.jpg", "/projects/gallery/alicante/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Site and demolition study", "Floor planning study"] },
-  { slug: "varian", name: "Varian Street Homes", location: "Mount Druitt, NSW", type: "Dual occupancy", image: "/projects/ai/varian.png", folio: "/projects/folios/varian-public-folio.pdf", gallery: ["/projects/ai/varian.png", "/projects/gallery/varian/01.jpg", "/projects/gallery/varian/02.jpg", "/projects/gallery/varian/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Upper floor planning study", "Spatial studies"] },
-  { slug: "norwest", name: "Anvaya Norwest", location: "Norwest, NSW", type: "Hospitality + wellness", image: "/projects/ai/norwest.png", folio: "/projects/folios/norwest-public-folio.pdf", gallery: ["/projects/ai/norwest.png", "/projects/gallery/norwest/01.jpg", "/projects/gallery/norwest/02.jpg", "/projects/gallery/norwest/03.jpg"], labels: ["AI-enhanced perspective", "Interior and isometric studies", "Floor planning study", "Detail study"] },
-  { slug: "market-street", name: "Market Street Residence", location: "Smithfield, NSW", type: "Renovation + addition", image: "/projects/ai/market-street.png", folio: "/projects/folios/market-street-public-folio.pdf", gallery: ["/projects/ai/market-street.png", "/projects/gallery/market-street/01.jpg", "/projects/gallery/market-street/02.jpg", "/projects/gallery/market-street/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Floor planning study", "Isometric study"] },
-  { slug: "glenda", name: "Glenda Place", location: "Plumpton, NSW", type: "Residential addition", image: "/projects/ai/glenda.png", folio: "/projects/folios/glenda-public-folio.pdf", gallery: ["/projects/ai/glenda.png", "/projects/gallery/glenda/01.jpg", "/projects/gallery/glenda/02.jpg", "/projects/gallery/glenda/03.jpg"], labels: ["AI-enhanced perspective", "Architectural perspective", "Demolition study", "Elevation and section study"] },
-  { slug: "good-shepherd", name: "Good Shepherd Conference Room", location: "Plumpton, NSW", type: "Community", image: "/projects/ai/good-shepherd.png", folio: "/projects/folios/good-shepherd-public-folio.pdf", gallery: ["/projects/ai/good-shepherd.png", "/projects/gallery/good-shepherd/01.jpg", "/projects/gallery/good-shepherd/02.jpg", "/projects/gallery/good-shepherd/03.jpg"], labels: ["AI-enhanced perspective", "Exterior and interior studies", "Site and floor planning study", "Isometric study"] },
-];
-
-const projectStories: Record<string, string> = {
-  betula: "A confident three-storey dual occupancy resolved as one calm address, with generous family living and privacy held in balance.",
-  "crown-line": "A warm country residence shaped around long views, sheltered outdoor living and an honest palette of stone, timber and metal.",
-  alicante: "Two contemporary homes composed with a shared architectural language while protecting light, identity and everyday privacy.",
-  varian: "A refined pair of homes that turns a demanding suburban brief into a clear, composed street presence.",
-  norwest: "A hospitality and wellness environment organised around arrival, calm circulation and moments of retreat.",
-  "market-street": "An existing home reworked through a precise addition, giving old and new a single confident architectural character.",
-  glenda: "A compact residential addition that finds more space, light and connection without losing the familiarity of home.",
-  "good-shepherd": "A community room designed for gathering, conversation and quiet flexibility within a restrained material envelope.",
-};
+const projects = allProjects.filter((project) => project.featured).slice(0, 6);
+const projectStories = Object.fromEntries(projects.map((project) => [project.slug, project.summary])) as Record<string, string>;
 
 const materialSchemes = [
   { name: "Warm mineral", note: "Soft, enduring and naturally tactile.", colours: ["#d8cdbc", "#867765", "#332f2a"], tags: ["Mineral render", "Spotted gum", "Bronze aluminium"] },
@@ -267,7 +250,6 @@ export default function Home() {
   const [siteComplexity, setSiteComplexity] = useState<"clear" | "typical" | "constrained">("typical");
   const [consultants, setConsultants] = useState(true);
   const [selectedMaterial, setSelectedMaterial] = useState(0);
-  const [workMenuOpen, setWorkMenuOpen] = useState(false);
   const [activeProject, setActiveProject] = useState<number | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [setupStep, setSetupStep] = useState(1);
@@ -587,32 +569,16 @@ export default function Home() {
 
   return (
     <main>
-      <nav className={`nav ${workMenuOpen ? "menu-active" : ""}`}>
-        <a className="brand" href="#top" aria-label="FRC Design and Construction home"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></a>
-        <div className="nav-links">
-          <button className="work-menu-trigger" aria-expanded={workMenuOpen} aria-controls="work-menu" onClick={() => setWorkMenuOpen((open) => !open)}>Selected work <span>{workMenuOpen ? "−" : "+"}</span></button>
-          <a href="#studio">Studio</a>
-          <a href="/simulator">Project simulator</a>
-        </div>
-        <a className="quote-link" href="#quote">Start a project <span>↗</span></a>
-        <div className={`work-menu ${workMenuOpen ? "open" : ""}`} id="work-menu">
-          <div className="menu-heading"><span>Project index</span><strong>Selected work</strong></div>
-          <div className="menu-projects">{projects.map((project, index) => (
-            <a href={`#project-${project.slug}`} key={project.slug} onClick={() => setWorkMenuOpen(false)}><span>{String(index + 1).padStart(2, "0")}</span><strong>{project.name}</strong><small>{project.type}</small><i>↘</i></a>
-          ))}</div>
-        </div>
-      </nav>
-
       <header className="welcome-hero" id="top">
         <img src="/projects/crown-line/realistic.png" alt="A warm FRC-designed family home at dusk" />
         <div className="welcome-wash" />
         <div className="welcome-copy">
-          <span>FRC Design + Construction · Architecture made personal</span>
+          <span>FRC Design & Construction · Architecture made personal</span>
           <h1>Bring us the land.<br />We’ll help you see<br /><em>the life inside it.</em></h1>
           <p>Thoughtful homes, clear approvals and a path to construction that makes sense from the first conversation.</p>
           <div><a href="/simulator">Explore what your land can hold <i>↗</i></a><a href="#project-wheel">Meet the work <i>↓</i></a></div>
         </div>
-        <div className="welcome-proof"><span>Homes shaped around real families</span><b>NSW + Australia</b><small>Feasibility · design · approvals · delivery</small></div>
+        <div className="welcome-proof"><span>Homes shaped around real families</span><b>Sydney, NSW</b><small>Feasibility · design · approvals · delivery</small></div>
         <a className="welcome-scroll" href="#project-wheel"><span>One small scroll</span><i /></a>
       </header>
 
@@ -630,9 +596,9 @@ export default function Home() {
             <div className="reveal-line" style={{ left: `${realReveal * 100}%`, opacity: realReveal > .02 && realReveal < .98 ? 1 : 0 }}><span>DRAWING / BUILT FORM</span></div>
             <div className="frame-shade" style={{ opacity: Math.max(0, (storyProgress - .66) * 1.8) }} />
           </div>
-          <div className={`story-copy copy-one ${p > 8 && p < 35 ? "visible" : ""}`}><span className="eyebrow">01 · Draw the idea</span><h1>Every home starts<br />as a <em>possibility.</em></h1></div>
+          <div className={`story-copy copy-one ${p > 8 && p < 35 ? "visible" : ""}`}><span className="eyebrow">01 · Draw the idea</span><h2>Every home starts<br />as a <em>possibility.</em></h2></div>
           <div className={`story-copy copy-two ${p >= 38 && p < 56 ? "visible" : ""}`}><span className="eyebrow">02 · Resolve the detail</span><h2>Line by line,<br />it becomes <em>real.</em></h2></div>
-          <div className={`story-quote ${p >= 58 && p < 74 ? "visible" : ""}`}><span>FRC Design + Construction</span><blockquote>“We don’t begin with a style. We begin with your land, your life and what the project must become.”</blockquote></div>
+          <div className={`story-quote ${p >= 58 && p < 74 ? "visible" : ""}`}><span>FRC Design & Construction</span><blockquote>“We don’t begin with a style. We begin with your land, your life and what the project must become.”</blockquote></div>
           <div className={`story-copy copy-three ${p >= 74 ? "visible" : ""}`}><span className="eyebrow">03 · Start with your land</span><h2>Your dimensions.<br /><em>Your</em> possibilities.</h2></div>
           <form className={`story-brief ${p >= 74 ? "visible" : ""}`} onSubmit={inspectSite} aria-label="Start a property feasibility check">
             <header><span>04 / Quick site brief</span><h3>What could you create here?</h3><p>Enter what you already know. The simulator will carry it forward and check the address against NSW planning layers.</p></header>
@@ -657,11 +623,11 @@ export default function Home() {
             </aside>
 
             <article className="folder-card folder-cover" style={{ "--folder-top-desktop": "88px", "--folder-top-mobile": "103px", "--folder-tab-left": "30px", zIndex: 2, transform: folderTransform(0) } as React.CSSProperties}>
-              <div className="folder-tab"><span>FRC / Completed work</span><b>Archive cover</b></div>
+              <div className="folder-tab"><span>FRC / Selected work</span><b>Archive cover</b></div>
               <div className="folder-cover-copy">
-                <span>Completed + resolved work</span>
+                <span>Selected + ongoing work</span>
                 <h2 id="folder-archive-title">A family of<br /><em>places.</em></h2>
-                <p>Every finished project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
+                <p>Every project began with a different land, family and ambition. Scroll the files to see how each brief became its own architecture.</p>
                 <small>{String(projects.length).padStart(2, "0")} selected projects · one small scroll opens each file</small>
               </div>
               <div className="folder-cover-previews">{projects.slice(0, 4).map((project, index) => <button type="button" key={`cover-${project.slug}`} onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} gallery`}><img src={project.image} alt="" /><span>0{index + 1}</span></button>)}</div>
@@ -677,13 +643,13 @@ export default function Home() {
               <div className="folder-tab"><span>{String(index + 1).padStart(2, "0")} / {String(projects.length).padStart(2, "0")}</span><b>{project.type}</b></div>
               <button type="button" className="folder-project-open" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
                 <div className="folder-project-copy">
-                  <span>Finalised project · {project.location}</span>
+                  <span>{project.status} · {project.location}</span>
                   <h3>{project.name}</h3>
                   <p>{projectStories[project.slug]}</p>
                   <dl><div><dt>Location</dt><dd>{project.location}</dd></div><div><dt>Typology</dt><dd>{project.type}</dd></div><div><dt>File</dt><dd>FRC / {String(index + 1).padStart(3, "0")}</dd></div></dl>
                   <small>Open the complete project <i>↗</i></small>
                 </div>
-                <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design and Construction`} /><span>Resolved work / {String(index + 1).padStart(2, "0")}</span></div>
+                <div className="folder-project-media"><img src={project.image} alt={`${project.name} by FRC Design & Construction`} /><span>Project study / {String(index + 1).padStart(2, "0")}</span></div>
               </button>
             </article>)}
           </div>
@@ -727,11 +693,12 @@ export default function Home() {
         <div className="project-grid">{projects.map((project, index) => (
           <article className={`project-card ${project.feature ? "featured" : ""}`} id={`project-${project.slug}`} key={project.slug}>
             <button type="button" onClick={() => { setActiveProject(index); setActiveSlide(0); }} aria-label={`Open ${project.name} project gallery`}>
-              <div className="project-image"><img src={project.image} alt={`${project.name} architectural project by FRC Design and Construction`} /><span>Open gallery ↗</span></div>
+              <div className="project-image"><img loading="lazy" src={project.image} alt={`${project.name} architectural project by FRC Design & Construction`} /><span>Open gallery ↗</span></div>
               <div className="project-card-copy"><h3>{project.name}</h3><p>{project.location} · {project.type}</p></div>
             </button>
           </article>
         ))}</div>
+        <Link className="view-all-projects" href="/portfolio">View All Projects <span>→</span></Link>
       </section>
 
       {activeProject !== null && (
@@ -741,7 +708,7 @@ export default function Home() {
             <div className={`viewer-image ${activeSlide > 0 ? "drawing" : ""}`}><img src={galleryFor(activeProject)[activeSlide]} alt={`${projects[activeProject].name}: ${labelsFor(activeProject)[activeSlide]}`} /></div>
             <footer>
               <div><span>{String(activeSlide + 1).padStart(2, "0")} / {String(galleryFor(activeProject).length).padStart(2, "0")}</span><strong>{labelsFor(activeProject)[activeSlide]}</strong></div>
-              <a className="public-folio-link" href={projects[activeProject].folio} target="_blank" rel="noreferrer">Open public drawing folio <span>↗</span><small>Client details removed</small></a>
+              {projects[activeProject].folio && <a className="public-folio-link" href={projects[activeProject].folio} target="_blank" rel="noreferrer">Open public drawing folio <span>↗</span><small>Client details removed</small></a>}
               <div className="viewer-controls"><button onClick={() => setActiveSlide((slide) => (slide - 1 + galleryFor(activeProject).length) % galleryFor(activeProject).length)}>←</button><button onClick={() => setActiveSlide((slide) => (slide + 1) % galleryFor(activeProject).length)}>→</button></div>
             </footer>
           </div>
@@ -843,7 +810,6 @@ export default function Home() {
         </div>}
       </section>
       {quoteSnapshot && <QuoteRequestModal snapshot={quoteSnapshot} onClose={() => setQuoteSnapshot(null)} />}
-      <footer><div className="brand footer-brand"><span className="brand-mark">FRC</span><span>DESIGN +<br />CONSTRUCTION</span></div><p>Architecture, planning and documentation<br />for considered projects across Australia.</p><div><a href="#top">Back to top ↑</a><span>© 2026 FRC Design & Construction</span></div></footer>
     </main>
   );
 }
