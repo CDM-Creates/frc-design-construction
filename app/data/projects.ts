@@ -218,9 +218,9 @@ export const projects: FRCProject[] = [
     status: "Design study",
     summary: "An addition to an existing home with the garage reworked as a compact secondary dwelling.",
     description: "A residential alteration and secondary-dwelling study documented through site calculations, planning, perspectives and coordinated drawing information.",
-    image: "/projects/portfolio-import/japura-place.jpg",
-    heroImage: "/projects/portfolio-import/japura-place.jpg",
-    gallery: ["/projects/portfolio-import/japura-place.jpg"],
+    image: "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png",
+    heroImage: "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png",
+    gallery: ["/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/02_Open_Plan_Living_Kitchen.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Interior.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/05_Bathroom_Laundry.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/03_Bedroom.png" ], 
     labels: ["Secondary-dwelling isometric and exterior studies"],
     featured: false,
     type: "Addition + secondary dwelling",
@@ -388,25 +388,58 @@ export const projects: FRCProject[] = [
     keyFeatures: ["Adaptive interior planning", "Living and kitchen coordination", "Technical compliance documentation"],
   },
   {
-    id: "frc-nancy-street",
-    slug: "nancy-street-addition",
-    name: "Nancy Street Addition",
-    title: "Nancy Street Addition",
-    category: "Extensions & Alterations",
-    secondaryCategories: ["Double-Storey Homes", "3D Visualisations"],
-    location: "St Marys, NSW",
-    status: "Design study",
-    summary: "An existing dwelling reworked with an addition and an extra level positioned above the garage.",
-    description: "A renovation and addition study coordinating retained spaces, new accommodation and the relationship between the existing house and upper-level addition.",
-    image: "/projects/portfolio-import/nancy-street-addition.jpg",
-    heroImage: "/projects/portfolio-import/nancy-street-addition.jpg",
-    gallery: ["/projects/portfolio-import/nancy-street-addition.jpg"],
-    labels: ["Ground-floor plan and upper-level addition study"],
-    featured: false,
-    type: "Renovation + addition",
-    services: ["Extensions and alterations", "Floor planning", "3D visualisation"],
-    keyFeatures: ["Existing-dwelling coordination", "Additional level above garage", "Ground- and upper-floor planning"],
-  },
+  id: "frc-nancy-street",
+  slug: "nancy-street-addition",
+  name: "Nancy Street Addition",
+  title: "Nancy Street Addition",
+  category: "Extensions & Alterations",
+  secondaryCategories: ["Double-Storey Homes", "3D Visualisations"],
+  location: "St Marys, NSW",
+  status: "Design study",
+
+  summary:
+    "A contemporary renovation and upper-level addition that reimagines an existing dwelling with stronger street presence, upgraded living spaces and a new master retreat above the garage.",
+
+  description:
+    "Nancy Street Addition is a residential renovation concept that retains the existing dwelling while introducing a sculptural upper-level volume above the garage. The design creates a stronger contemporary street presence, improves the relationship between the original home and new accommodation, and introduces a refined palette of charcoal framing, light brickwork, timber detailing and expansive glazing.",
+
+  image: "/projects/portfolio-import/nancy-street-addition/01.jpg",
+
+  heroImage: "/projects/portfolio-import/nancy-street-addition/01.jpg",
+
+  gallery: [
+    "/projects/portfolio-import/nancy-street-addition/01.jpg",
+    "/projects/portfolio-import/nancy-street-addition/02.jpg",
+    "/projects/portfolio-import/nancy-street-addition/03.jpg",
+    "/projects/portfolio-import/nancy-street-addition/04.jpg",
+    "/projects/portfolio-import/nancy-street-addition/05.jpg",
+  ],
+
+  labels: [
+    "Street-front architectural perspective",
+    "Alternative front facade perspective",
+    "Twilight exterior presentation",
+    "Rear courtyard and outdoor living area",
+    "Open-plan living and dining interior",
+  ],
+
+  featured: false,
+  type: "Renovation + addition",
+
+  services: [
+    "Extensions and alterations",
+    "Floor planning",
+    "3D visualisation",
+  ],
+
+  keyFeatures: [
+    "Existing-dwelling coordination",
+    "Upper-level addition above the garage",
+    "Contemporary framed facade",
+    "Improved indoor-outdoor connection",
+    "Ground- and upper-floor planning",
+  ],
+},
 ];
 
 export const projectBySlug = (slug: string) => projects.find((project) => project.slug === slug);
