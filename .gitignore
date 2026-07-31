@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /.vinext/
+/dist/
 /out/
 
 # misc
@@ -38,7 +39,9 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
-/dist/
+*.tsbuildinfo
 /.wrangler/
 /outputs/
 /work/
+/.frc-local/
+/.frc-private-storage/

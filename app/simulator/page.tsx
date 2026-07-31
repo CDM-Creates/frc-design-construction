@@ -1,26 +1,26 @@
 import Link from "next/link";
+import { PlanningSimulationWizard } from "../components/planning-simulation-wizard";
 
-export default function SimulatorComingSoon() {
+export default function SimulatorPage() {
   return (
-    <main className="simulator-coming-soon">
-      <nav>
+    <main className="planning-simulator-page">
+      <nav className="planning-site-nav">
         <Link className="brand" href="/" aria-label="FRC Design and Construction home">
           <span className="brand-mark">FRC</span>
           <span>DESIGN &<br />CONSTRUCTION</span>
         </Link>
+        <div>
+          <Link href="/">Home</Link>
+          <Link href="/services">Services</Link>
+          <Link href="/portfolio">Portfolio</Link>
+        </div>
         <Link href="/#quote">Start a project <span>↗</span></Link>
       </nav>
-      <section>
-        <span>FRC · Property feasibility</span>
-        <h1>Project simulator<br /><em>coming soon.</em></h1>
-        <p>
-          We are completing the source-traceable NSW property feasibility and
-          architect handover workflow. For now, start with the Property →
-          Ambition → Roadmap brief and send it directly to our lead architect.
-        </p>
-        <Link href="/#quote">Build your project brief <span>→</span></Link>
-      </section>
-      <footer>Preliminary feasibility only. Professional verification remains essential.</footer>
+      <PlanningSimulationWizard />
+      <footer className="planning-footer">
+        <span>FRC Design & Construction</span>
+        <p>Preliminary property-planning assessment only. Professional verification remains essential.</p>
+      </footer>
     </main>
   );
 }

@@ -220,7 +220,7 @@ export const projects: FRCProject[] = [
     description: "A residential alteration and secondary-dwelling study documented through site calculations, planning, perspectives and coordinated drawing information.",
     image: "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png",
     heroImage: "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png",
-    gallery: ["/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/02_Open_Plan_Living_Kitchen.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Interior.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/05_Bathroom_Laundry.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/03_Bedroom.png" ], 
+    gallery: ["/projects/portfolio-import/3_Japura_Place_Rendered_Images/06_Secondary_Dwelling_Exterior.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/02_Open_Plan_Living_Kitchen.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/05_Bathroom_Laundry.png", "/projects/portfolio-import/3_Japura_Place_Rendered_Images/03_Bedroom.png" ], 
     labels: ["Secondary-dwelling isometric and exterior studies"],
     featured: false,
     type: "Addition + secondary dwelling",

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "NSW Project Simulator | FRC Design & Construction",
-  description: "Turn a NSW property address, land dimensions and project brief into a clear concept overview, planning-control screen and law-aware path to construction.",
+  title: "NSW Property Planning Simulator | FRC Design & Construction",
+  description: "Build a source-traceable NSW property-planning scope, see deterministic FRC pricing and prepare an architect-ready report brief.",
 };
 
 export default function SimulatorLayout({ children }: Readonly<{ children: React.ReactNode }>) {

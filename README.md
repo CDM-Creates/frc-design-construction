@@ -2,6 +2,20 @@
 
 A cinematic architecture website with a shared client project brief, NSW site-analysis tools, automated quote delivery and a cloud-based multi-AI architectural concept workflow.
 
+## Property planning simulator
+
+The `/simulator` route now contains the production foundation for the FRC property-planning assessment:
+
+- structured development-item selection;
+- server-side deterministic pricing;
+- tailored-quote triggers;
+- NSW property/source status;
+- browser draft restoration for unauthenticated users;
+- a structured architect-ready report-data pack;
+- preliminary, architect-handover, Council-readiness and tailored-quote report templates.
+
+The report-data pack does not call OpenAI yet. The exact future server-side API boundary, environment names, verification gate and architect-approval flow are documented in [`docs/PLANNING_REPORT_AI_SETUP.md`](docs/PLANNING_REPORT_AI_SETUP.md).
+
 ## Run locally
 
 ```bash
@@ -30,6 +44,32 @@ Open the local address shown in the terminal.
 - Premium client result page with galleries, room schedule, planning verification, assumptions, next steps and print-to-PDF support.
 - Fallback report generation when an AI key, model or provider is unavailable.
 - Rate limiting, input limits, file validation, prompt-injection boundaries and safe output rendering.
+
+## Property-planning report platform
+
+The `/simulator` planning workflow now has a separate report-platform foundation:
+
+- `FRC_REPORT_PRICING_2026_01` with integer-cents calculations, explicit item fees, coordination, minimum engagements and immutable server snapshots
+- one private upload panel for every checked document category
+- MIME, extension, signature, size, hash and ownership validation
+- persistent local test orders, payment events, report jobs, sections and reports
+- signed mock checkout where only a verified server event starts generation
+- deterministic mock report AI with evidence validation and no external API call
+- persistent `/report-status/[jobId]` experience
+- branded secure web report and print-ready A4 output
+- protected professional-review queue and production-readiness validator
+
+Keep these settings in local test mode:
+
+```env
+FRC_PLATFORM_MODE=test
+PAYMENT_PROVIDER=mock
+PAYMENTS_LIVE_ENABLED=false
+REPORT_AI_PROVIDER=mock
+REPORT_AI_ENABLED=false
+```
+
+See [`docs/PLANNING-REPORT-PLATFORM.md`](docs/PLANNING-REPORT-PLATFORM.md) before enabling live payments or AI, and before verifying malware scanning, email, D1/R2 and report-pack operations.
 
 ## OpenAI API key
 
@@ -110,7 +150,7 @@ Set a strong signing secret so uploaded documents are only available through exp
 FILE_SIGNING_SECRET=long-random-production-secret
 ```
 
-When D1 or R2 is not connected, the application keeps a temporary runtime result and still generates the report, but persistent storage and durable file links require the cloud bindings.
+Local test mode uses isolated SQLite and filesystem storage. Hosted production uses the `DB` D1 and `PROJECT_FILES` R2 bindings and fails closed if either required binding is unavailable.
 
 ## Production checks
 

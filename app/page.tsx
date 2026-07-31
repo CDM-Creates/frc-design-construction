@@ -168,7 +168,7 @@ function QuoteRequestModal({ snapshot, onClose }: { snapshot: QuoteProjectSnapsh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullName, email, phone, company, preferredContact, budget, timeline, message, confirmed, website, project: snapshot }),
       });
-      const result = await response.json();
+      const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "The quote request could not be sent.");
       setStatus("success");
     } catch (error) {
@@ -494,7 +494,9 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ streetAddress: privateStreetAddress.current || streetAddress, suburb, postcode, knownLandArea: landArea, frontage, depth, lotType, slope, existingDwelling, storeys, bedrooms, bathrooms, parking, projectGoal }),
       });
-      const result = await response.json();
+      const result = (await response.json()) as SiteAnalysis & {
+        error?: string;
+      };
       if (!response.ok) throw new Error(result.error ?? "Property analysis failed.");
       if (requestId !== siteAnalysisRequestId.current) return;
       const safeSuburb = result.addressDetails?.suburb ?? suburb;
