@@ -1,29 +1,25 @@
 # FRC planning-report AI hand-off
 
-The report platform currently uses a deterministic mock provider. It prepares and persists the same structured input/output package expected by a future OpenAI-backed adapter, but it does not send client data or files to OpenAI.
+The platform currently uses a deterministic mock provider. It prepares and persists the same structured input/output package expected by a future OpenAI-backed adapter, but it does not send client data or files to OpenAI.
 
-## Where the API belongs
+## Provider boundary
 
-Keep the OpenAI call server-side. The provider boundary is:
-
-`app/lib/report-platform/report-ai-provider.ts`
-
-A future OpenAI adapter should:
+Keep every OpenAI call server-side in `app/lib/report-platform/report-ai-provider.ts`. A future adapter must:
 
 1. Implement the existing `ReportAiProvider` interface.
-2. Accept only the versioned `FrcReportGenerationInputV1` package.
-3. Use structured outputs matching `FRC_REPORT_SCHEMA_V1`.
-4. Store the provider, model, prompt and schema versions with each job.
-5. Validate citations and evidence status before persisting each section.
-6. Preserve `missing`, `unavailable`, `conflict` and `requires professional review` states instead of guessing.
-7. Send every completed report order to the configured FRC architect notification address.
+2. Accept only `FrcReportGenerationInputV2` / `FRC_REPORT_GENERATION_INPUT_V2`.
+3. Use structured outputs matching `FRC_REPORT_SCHEMA_V2`.
+4. Preserve frozen template `FRC_REPORT_TEMPLATES_2026_02` and prompt `FRC_REPORT_PROMPTS_2026_02` metadata.
+5. Store provider, model, prompt and schema versions with every job.
+6. Validate citations and evidence status before persisting each section.
+7. Preserve `missing`, `unavailable`, `conflict`, `lookup_failed` and `requires professional review` states instead of guessing.
 8. Keep professionally verified and council-readiness reports blocked until an authorised reviewer approves release.
 
 Never put the API key in a React component, browser request, report JSON, Git history or public file.
 
-## Server environment names
+## Server environment
 
-For local development, copy `.env.example` to the ignored `.env.local` file and replace only the server-side placeholders. The future adapter should read:
+For local development, copy `.env.example` to ignored `.env.local` and replace only server-side placeholders:
 
 ```env
 OPENAI_API_KEY=sk-proj-your-real-key
@@ -32,33 +28,32 @@ REPORT_AI_MODEL=your-approved-model
 REPORT_AI_ENABLED=false
 ```
 
-Do not put a real key in `.env.example`. Keep `REPORT_AI_ENABLED=false` until the OpenAI provider implementation, structured-output validation, privacy review, cost controls and report evals have passed. The current code fails safely if production is selected before a real provider exists.
+Do not put a real key in `.env.example`. Keep `REPORT_AI_ENABLED=false` until the provider, structured-output validation, privacy review, cost controls and report evals pass. Hosted values must be private runtime variables and must never use the `NEXT_PUBLIC_` prefix.
 
-For the hosted site, configure the same values as private runtime environment variables in the hosting control plane. Never prefix these names with `NEXT_PUBLIC_`.
+## Prepared templates
 
-## Prepared report templates
+`app/lib/report-platform/report-template-registry.ts` defines one fixed template for each of the 15 catalogue reports. All templates contain the 25-section FRC evidence baseline plus the complete report-specific section set. Development reports add concept, constraint and services visualisation modules. Conditional modules cover large sites, purchased document analysis, professional review records and council readiness.
 
-`app/lib/planning-simulation/report-templates.ts` builds four templates:
+Every order freezes selected template IDs, names, versions, required section codes and conditional section codes. Later registry changes therefore cannot silently alter a released report or its individual PDF.
 
-- preliminary property-planning report;
-- architect planning and design handover;
-- council-submission readiness report;
-- tailored planning-scope brief.
+## Online facts before generation
 
-Every template includes the 32-section core structure, property identity, source provenance, planning framework, LEP and DCP controls, site analysis, environmental screening, title and services, document review, development-item assessments, missing information, risk register, recommendations, architect verification, disclaimer and appendices.
+Server code—not the model—retrieves and persists the available official NSW address, cadastral, zoning, LEP, height, FSR, minimum-lot-size, heritage, bushfire and flood results before an order can be confirmed. Source URLs/statuses and retrieval dates flow into the generation package and final source register. A service failure remains unknown and generates an investigation action.
 
-Item-specific sections come from `app/lib/planning-simulation/development-items.ts`. Combined projects receive a combined-site section; alternatives receive an options-comparison section. Council reports receive drawing-compliance and submission-checklist sections.
+Title, registered survey, Section 10.7, service-location evidence and council DCP details are not fabricated. They remain missing, require upload/order, or route to professional confirmation.
 
 ## Safety contract
 
 OpenAI may draft and explain. It may not:
 
-- match an address;
-- determine Lot/DP, land area, council, zoning or mapped controls;
-- calculate or alter pricing;
-- add a development item from client notes;
+- match an address or choose the cadastral lot;
+- determine or alter the official source result;
+- calculate or change pricing;
+- add products from free text;
 - convert an unavailable source into a negative finding;
-- approve a report for client release;
+- rely on an uploaded technical document unless analysis is included or purchased;
+- claim surveyed boundaries from mapping;
+- approve a report for release;
 - send a report directly to a client.
 
-All completed orders create an architect notification. Any report sold as FRC verified or council-ready also requires the recorded human approval step before client release.
+Any report sold as FRC reviewed or council-ready requires a recorded human approval and release decision.

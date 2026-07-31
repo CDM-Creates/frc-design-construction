@@ -32,7 +32,8 @@ test("uses the selected cadastral lot for parcel area instead of the broader pro
 });
 
 test("keeps client area separate and makes optional planning layers non-fatal", () => {
-  assert.match(apiSource, /clientSuppliedAreaSqm: positiveNumber\(inputs\.knownLandArea\)/);
+  assert.match(apiSource, /const clientSuppliedAreaSqm = positiveNumber\(inputs\.knownLandArea\)/);
+  assert.match(apiSource, /clientSuppliedAreaSqm,/);
   assert.match(apiSource, /surveyedAreaSqm: null/);
   assert.match(apiSource, /safePlanningLayer\(11, "floor-space ratio"/);
   assert.match(apiSource, /safePlanningLayer\(22, "minimum lot size"/);

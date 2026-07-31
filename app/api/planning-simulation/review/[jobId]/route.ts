@@ -32,6 +32,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ jobId
     const reviewerName = typeof body.reviewerName === "string" ? body.reviewerName.trim().slice(0, 160) : "";
     const reviewerRole = typeof body.reviewerRole === "string" ? body.reviewerRole.trim().slice(0, 160) : "";
     const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 5000) : "";
+    const correctionsMade = typeof body.correctionsMade === "string" ? body.correctionsMade.trim().slice(0, 5000) : "";
+    const unresolvedMatters = typeof body.unresolvedMatters === "string" ? body.unresolvedMatters.trim().slice(0, 5000) : "";
     if (!reviewerName || !reviewerRole || !notes) throw new Error("Reviewer name, role and notes are required.");
     const repository = await getReportPlatformRepository();
     const job = await repository.getReportJob(jobId);
@@ -41,6 +43,20 @@ export async function PATCH(request: Request, context: { params: Promise<{ jobId
     if (!order || !report) throw new Error("The review package is incomplete.");
     if (action === "request_changes") {
       if (order.status === "awaiting_professional_review") await repository.transitionOrder(order.id, "changes_requested", "frc_reviewer", { reviewerName, notes });
+      await repository.addOrderEvent({
+        id: crypto.randomUUID(),
+        orderId: order.id,
+        eventType: "professional_review_changes_requested",
+        actor: "frc_reviewer",
+        metadata: {
+          reviewerName,
+          reviewerRole,
+          notes,
+          correctionsMade,
+          unresolvedMatters,
+        },
+        createdAt: new Date().toISOString(),
+      });
       job.status = "changes_requested";
       job.progressStage = "professional_review";
       await repository.saveReportJob(job);
@@ -52,17 +68,73 @@ export async function PATCH(request: Request, context: { params: Promise<{ jobId
     report.status = "released";
     report.releasedAt = new Date().toISOString();
     report.version += 1;
-    report.reviewerRecord = {
+    const reviewerRecord = {
+      professionalReviewStatus: "completed",
       reviewerName,
       reviewerRole,
       notes,
       reviewedAt: report.releasedAt,
       registrationJurisdiction: business.reviewerRegistrationJurisdiction || null,
       registrationNumber: business.reviewerRegistrationNumber || null,
+      sectionsReviewed: report.structuredReport.sections.map(
+        (section) => section.code,
+      ),
+      correctionsMade: correctionsMade || "No separate correction entry recorded.",
+      reviewerObservations: notes,
+      unresolvedMatters: unresolvedMatters || "None recorded at release.",
+      releaseDecision: "approved_for_release",
+      reviewLimitations:
+        "Review is limited to the purchased report scope and does not constitute development consent, surveying or engineering certification.",
+      revisionHistory: `Revision ${report.version + 1} released after professional review.`,
     };
+    report.reviewerRecord = reviewerRecord;
     report.structuredReport.reportStatus = "frc_professionally_reviewed";
     report.structuredReport.watermark = "FRC professionally reviewed";
     report.structuredReport.lastRevisedAt = report.releasedAt;
+    report.structuredReport.professionalReviewRecord = reviewerRecord;
+    const reviewSourceId = `FRC-PROFESSIONAL-REVIEW-${jobId}`;
+    report.structuredReport.sourceRegister = [
+      ...report.structuredReport.sourceRegister.filter(
+        (source) => source.id !== reviewSourceId,
+      ),
+      {
+        id: reviewSourceId,
+        name: `${reviewerName}, ${reviewerRole}`,
+        status: "professional_review_completed",
+        retrievedAt: report.releasedAt,
+        registrationJurisdiction:
+          business.reviewerRegistrationJurisdiction || null,
+        registrationNumber: business.reviewerRegistrationNumber || null,
+      },
+    ];
+    report.structuredReport.sections = report.structuredReport.sections.map(
+      (section) =>
+        section.code.startsWith("pr_") ||
+        section.code === "professional_review_record"
+          ? {
+              ...section,
+              summary:
+                "A human FRC reviewer completed the recorded review and approved this revision for release within the stated scope.",
+              statements: [{
+                text: `${reviewerName} (${reviewerRole}) reviewed this report on ${report.releasedAt}.`,
+                statementType: "professional_opinion" as const,
+                sourceId: reviewSourceId,
+                sourceType: "professional_review_record",
+                sourceStatus: "professionally_verified",
+                issueOrRetrievalDate: report.releasedAt,
+                verificationState: "review_completed",
+                professionalReviewRequired: false,
+              }],
+              bullets: [
+                `Corrections: ${reviewerRecord.correctionsMade}`,
+                `Observations: ${reviewerRecord.reviewerObservations}`,
+                `Unresolved matters: ${reviewerRecord.unresolvedMatters}`,
+                `Release decision: ${reviewerRecord.releaseDecision}`,
+              ],
+              status: "generated_frc_analysis" as const,
+            }
+          : section,
+    );
     report.structuredReport.visualisations = report.structuredReport.visualisations?.map((visual) =>
       visual.status === "awaiting_professional_review"
         ? { ...visual, status: "approved", professionalReviewStatus: "approved" }

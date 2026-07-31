@@ -178,6 +178,29 @@ export const DOCUMENT_CATEGORY_BY_CODE = new Map(
   DOCUMENT_CATEGORIES.map((category) => [category.code, category]),
 );
 
+export const DOCUMENT_ANALYSIS_UPGRADE_BY_CODE = new Map(
+  DOCUMENT_CATEGORIES.flatMap((category) =>
+    category.premiumUpgradeCode &&
+    category.premiumLabel &&
+    category.premiumFeeCents
+      ? [
+          [
+            category.premiumUpgradeCode,
+            {
+              code: category.premiumUpgradeCode,
+              label: category.premiumLabel,
+              feeCents: category.premiumFeeCents,
+              eligibleDocumentCategories: DOCUMENT_CATEGORIES.filter(
+                (candidate) =>
+                  candidate.premiumUpgradeCode === category.premiumUpgradeCode,
+              ).map((candidate) => candidate.code),
+            },
+          ] as const,
+        ]
+      : [],
+  ),
+);
+
 export const COUNCIL_READINESS_REQUIRED_DOCUMENTS: DocumentCategoryCode[] = [
   "architectural_plans",
   "registered_detail_survey",

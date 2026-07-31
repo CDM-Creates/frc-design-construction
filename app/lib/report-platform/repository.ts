@@ -383,7 +383,7 @@ class LocalSqliteReportPlatformRepository implements ReportPlatformRepository {
       await statement.run(
         crypto.randomUUID(), jobId, section.code, "complete", JSON.stringify(section),
         JSON.stringify(section.statements.map((item) => item.sourceId)),
-        JSON.stringify({ valid: true, schemaVersion: "FRC_REPORT_SCHEMA_V1" }),
+        JSON.stringify({ valid: true, schemaVersion: "FRC_REPORT_SCHEMA_V2" }),
         section.status === "requires_professional_review" ? "pending" : "not_required", 1,
       );
     }

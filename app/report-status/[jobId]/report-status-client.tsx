@@ -37,6 +37,7 @@ export function ReportStatusClient({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (!access) return;
+    let cancelled = false;
     const load = async () => {
       const response = await fetch(`/api/planning-simulation/status/${jobId}`, {
         cache: "no-store",
@@ -44,10 +45,23 @@ export function ReportStatusClient({ jobId }: { jobId: string }) {
       });
       const result = await response.json() as StatusResponse;
       if (!response.ok) throw new Error(result.error || "The report status could not be loaded.");
+      if (cancelled) return;
       setData(result);
       setError("");
     };
-    void load().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "The report status could not be loaded."));
+    const refresh = () => {
+      void load().catch((caught: unknown) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "The report status could not be loaded.");
+        }
+      });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 2_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [access, jobId]);
 
   if (!access) return <main className="report-status-page"><section className="report-status-state"><span>FRC · Secure report status</span><h1>Access link required.</h1><p>Open the secure link supplied after checkout.</p><Link href="/simulator">Return to the simulator</Link></section></main>;

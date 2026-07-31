@@ -1,3 +1,6 @@
+import { getReportPlatformRepository } from "../../lib/report-platform/repository";
+import { tokenMatches } from "../../lib/report-platform/security";
+
 type ArcFeature = {
   attributes?: Record<string, unknown>;
   geometry?: { rings?: number[][][] };
@@ -99,12 +102,27 @@ async function queryPlanningLayer(layer: number, longitude: number, latitude: nu
   return (data.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
 }
 
+type LayerLookup = {
+  attributes: Record<string, unknown> | null;
+  status: "mapped" | "not_mapped" | "lookup_failed";
+  error: string | null;
+};
+
 async function safePlanningLayer(layer: number, label: string, longitude: number, latitude: number) {
   try {
-    return await queryPlanningLayer(layer, longitude, latitude);
+    const attributes = await queryPlanningLayer(layer, longitude, latitude);
+    return {
+      attributes,
+      status: attributes ? "mapped" : "not_mapped",
+      error: null,
+    } satisfies LayerLookup;
   } catch (error) {
     console.warn(`[site-analysis] Optional ${label} layer ${layer} failed`, error);
-    return null;
+    return {
+      attributes: null,
+      status: "lookup_failed",
+      error: error instanceof Error ? error.message : String(error),
+    } satisfies LayerLookup;
   }
 }
 
@@ -118,8 +136,23 @@ async function safeSpatialLayer(service: string, layer: number, label: string, l
     returnGeometry: "false",
     f: "json",
   });
-  const data = await safeGetJson(`${service}/${layer}/query?${params}`, label);
-  return (data?.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
+  try {
+    const data = await getJson(`${service}/${layer}/query?${params}`);
+    const attributes =
+      (data.features?.[0] as ArcFeature | undefined)?.attributes ?? null;
+    return {
+      attributes,
+      status: attributes ? "mapped" : "not_mapped",
+      error: null,
+    } satisfies LayerLookup;
+  } catch (error) {
+    console.warn(`[site-analysis] Optional ${label} layer ${layer} failed`, error);
+    return {
+      attributes: null,
+      status: "lookup_failed",
+      error: error instanceof Error ? error.message : String(error),
+    } satisfies LayerLookup;
+  }
 }
 
 function signedRingAreaSqm(ring: number[][]) {
@@ -262,6 +295,8 @@ type ProjectInputs = {
   proposedExcavationDepth?: number;
   excavationBoundaryDistance?: number;
   poolCapacity?: number;
+  reportOrderId?: string;
+  reportAccessToken?: string;
 };
 
 function calculateRegulatoryScreen(input: {
@@ -433,7 +468,7 @@ export async function POST(request: Request) {
       f: "json",
     });
 
-    const [propertyData, lotData, fsr, height, heritage, zoning, lotSize, bushfire, flooding] = await Promise.all([
+    const [propertyData, lotData, fsrLookup, heightLookup, heritageLookup, zoningLookup, lotSizeLookup, bushfireLookup, floodingLookup] = await Promise.all([
       safeGetJson(`${PROPERTY_SERVICE}/query?${propertyParams}`, "property aggregate"),
       safeGetJson(`${LOT_SERVICE}/query?${lotParams}`, "cadastral lot"),
       safePlanningLayer(11, "floor-space ratio", longitude, latitude),
@@ -444,6 +479,13 @@ export async function POST(request: Request) {
       safeSpatialLayer(HAZARD_SERVICE, 229, "bush fire prone land", longitude, latitude),
       safeSpatialLayer(HAZARD_SERVICE, 230, "flood planning map", longitude, latitude),
     ]);
+    const fsr = fsrLookup.attributes;
+    const height = heightLookup.attributes;
+    const heritage = heritageLookup.attributes;
+    const zoning = zoningLookup.attributes;
+    const lotSize = lotSizeLookup.attributes;
+    const bushfire = bushfireLookup.attributes;
+    const flooding = floodingLookup.attributes;
 
     const property = propertyData?.features?.[0] as ArcFeature | undefined;
     const lotFeatures = (lotData?.features ?? []) as ArcFeature[];
@@ -473,8 +515,17 @@ export async function POST(request: Request) {
     const areaDifferencePercent = areaDifferenceSqm !== null && serviceReportedAreaSqm
       ? Math.round((areaDifferenceSqm / serviceReportedAreaSqm) * 1000) / 10
       : null;
-    const areaRequiresVerification = areaDifferenceSqm !== null
+    const clientSuppliedAreaSqm = positiveNumber(inputs.knownLandArea);
+    const clientAreaDifferenceSqm =
+      mappedParcelAreaSqm && clientSuppliedAreaSqm
+        ? Math.abs(mappedParcelAreaSqm - clientSuppliedAreaSqm)
+        : null;
+    const officialAreaConflict = areaDifferenceSqm !== null
       && areaDifferenceSqm > Math.max(5, Math.min(serviceReportedAreaSqm ?? 0, calculatedGeometryAreaSqm ?? 0) * 0.02);
+    const clientAreaConflict = clientAreaDifferenceSqm !== null
+      && clientAreaDifferenceSqm > Math.max(5, mappedParcelAreaSqm! * 0.02);
+    const areaRequiresVerification =
+      officialAreaConflict || clientAreaConflict;
     const areaStatus = mappedParcelAreaSqm
       ? areaRequiresVerification ? "requires_verification" : "mapped"
       : "unavailable";
@@ -509,7 +560,7 @@ export async function POST(request: Request) {
       parcelPointCount: boundary.length,
     });
 
-    return Response.json({
+    const analysis = {
       matchStatus: "matched",
       matchedAt,
       matchedAddress: fullAddress,
@@ -541,7 +592,7 @@ export async function POST(request: Request) {
       depositedPlan: planLabel || null,
       area: mappedParcelAreaSqm ? Math.round(mappedParcelAreaSqm) : null,
       mappedParcelAreaSqm: mappedParcelAreaSqm ? Math.round(mappedParcelAreaSqm * 10) / 10 : null,
-      clientSuppliedAreaSqm: positiveNumber(inputs.knownLandArea),
+      clientSuppliedAreaSqm,
       surveyedAreaSqm: null,
       serviceReportedAreaSqm,
       calculatedGeometryAreaSqm,
@@ -554,10 +605,16 @@ export async function POST(request: Request) {
         propertyAggregateAreaSqm,
         differenceSqm: areaDifferenceSqm !== null ? Math.round(areaDifferenceSqm * 10) / 10 : null,
         differencePercent: areaDifferencePercent,
+        clientDifferenceSqm:
+          clientAreaDifferenceSqm !== null
+            ? Math.round(clientAreaDifferenceSqm * 10) / 10
+            : null,
         status: areaStatus,
         selectedSource: serviceReportedAreaSqm ? "NSW cadastral lot area attribute" : calculatedGeometryAreaSqm ? "Calculated from selected cadastral lot geometry" : null,
         note: areaRequiresVerification
-          ? "The NSW lot-area attribute and calculated cadastral geometry differ materially. Both values are shown and must be verified."
+          ? clientAreaConflict
+            ? "The client-supplied area differs materially from the selected NSW cadastral lot area. Both values are recorded and must be verified."
+            : "The NSW lot-area attribute and calculated cadastral geometry differ materially. Both values are shown and must be verified."
           : "Area is taken only from the selected NSW cadastral lot, not the broader property aggregate polygon.",
       },
       parcelShape: shapeMetrics,
@@ -615,17 +672,17 @@ export async function POST(request: Request) {
           retrievedAt: matchedAt,
           status: areaStatus,
         },
-        zone: planningField(zoneCode === "Not mapped" ? null : zoneCode, "Zoning layer 19", zoning),
-        height: planningField(height?.MAX_B_H ?? null, "Building height layer 14", height),
-        fsr: planningField(fsr?.FSR ?? null, "Floor-space ratio layer 11", fsr),
-        minimumLotSize: planningField(lotSize?.LOT_SIZE ?? null, "Minimum lot size layer 22", lotSize),
-        heritage: planningField(heritage ? heritage.H_NAME ?? heritage.LAY_CLASS ?? "Mapped" : null, "Heritage layer 16", heritage, heritage ? "mapped" : "not_mapped"),
+        zone: planningField(zoneCode === "Not mapped" ? null : zoneCode, "Zoning layer 19", zoning, zoningLookup.status),
+        height: planningField(height?.MAX_B_H ?? null, "Building height layer 14", height, heightLookup.status),
+        fsr: planningField(fsr?.FSR ?? null, "Floor-space ratio layer 11", fsr, fsrLookup.status),
+        minimumLotSize: planningField(lotSize?.LOT_SIZE ?? null, "Minimum lot size layer 22", lotSize, lotSizeLookup.status),
+        heritage: planningField(heritage ? heritage.H_NAME ?? heritage.LAY_CLASS ?? "Mapped" : null, "Heritage layer 16", heritage, heritageLookup.status),
         bushfire: {
-          ...planningField(bushfire ? bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped" : null, "Bush fire prone land layer 229", bushfire, bushfire ? "mapped" : "not_mapped"),
+          ...planningField(bushfire ? bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped" : null, "Bush fire prone land layer 229", bushfire, bushfireLookup.status),
           sourceName: "NSW Planning Portal Hazard layers",
         },
         flooding: {
-          ...planningField(flooding ? flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped" : null, "Flood planning map layer 230", flooding, flooding ? "mapped" : "not_mapped"),
+          ...planningField(flooding ? flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped" : null, "Flood planning map layer 230", flooding, floodingLookup.status),
           sourceName: "NSW Planning Portal Hazard layers",
         },
       },
@@ -635,9 +692,9 @@ export async function POST(request: Request) {
         { name: "Building height", value: height?.MAX_B_H ? `${height.MAX_B_H} ${height.UNITS ?? "m"}` : "No numeric height mapped", status: height?.MAX_B_H ? "mapped" : "review" },
         { name: "Floor-space ratio", value: fsr?.FSR ? `${fsr.FSR}:1` : "No FSR mapped", status: fsr?.FSR ? "mapped" : "review" },
         { name: "Minimum lot size", value: lotSize?.LOT_SIZE ? `${lotSize.LOT_SIZE} ${lotSize.UNITS ?? "m²"}` : "No minimum mapped", status: lotSize?.LOT_SIZE ? "mapped" : "review" },
-        { name: "Heritage", value: heritage ? String(heritage.H_NAME ?? "Mapped") : "No principal heritage layer hit", status: heritage ? "alert" : "clear" },
-        { name: "Bush fire prone land", value: bushfire ? String(bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped") : "No hazard-layer hit", status: bushfire ? "alert" : "clear" },
-        { name: "Flood planning", value: flooding ? String(flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped") : "No hazard-layer hit", status: flooding ? "alert" : "clear" },
+        { name: "Heritage", value: heritage ? String(heritage.H_NAME ?? "Mapped") : heritageLookup.status === "lookup_failed" ? "Official heritage lookup failed — status unknown" : "No principal heritage layer hit", status: heritage ? "alert" : heritageLookup.status === "lookup_failed" ? "unknown" : "screened_no_hit" },
+        { name: "Bush fire prone land", value: bushfire ? String(bushfire.Category ?? bushfire.CATEGORY ?? bushfire.LAY_CLASS ?? "Mapped") : bushfireLookup.status === "lookup_failed" ? "Official bushfire lookup failed — status unknown" : "No hazard-layer hit", status: bushfire ? "alert" : bushfireLookup.status === "lookup_failed" ? "unknown" : "screened_no_hit" },
+        { name: "Flood planning", value: flooding ? String(flooding.LAY_CLASS ?? flooding.FLOOD_CLASS ?? flooding.NAME ?? "Mapped") : floodingLookup.status === "lookup_failed" ? "Official flood lookup failed — status unknown" : "No hazard-layer hit", status: flooding ? "alert" : floodingLookup.status === "lookup_failed" ? "unknown" : "screened_no_hit" },
         { name: "Excavation depth", value: "Not a statewide mapped numeric control", status: "specialist" },
         { name: "Setbacks + landscaped area", value: "Confirm council DCP / CDC standards", status: "specialist" },
       ],
@@ -652,17 +709,102 @@ export async function POST(request: Request) {
             ? "Calculated cadastral geometry"
             : "Unavailable",
         layerStatus: {
-          zoning: zoning ? "mapped" : "not-mapped",
-          height: height ? "mapped" : "not-mapped",
-          floorSpaceRatio: fsr ? "mapped" : "not-mapped",
-          heritage: heritage ? "mapped" : "not-mapped",
-          minimumLotSize: lotSize ? "mapped" : "not-mapped",
-          bushfire: bushfire ? "mapped" : "not-mapped",
-          flooding: flooding ? "mapped" : "not-mapped",
+          zoning: zoningLookup.status,
+          height: heightLookup.status,
+          floorSpaceRatio: fsrLookup.status,
+          heritage: heritageLookup.status,
+          minimumLotSize: lotSizeLookup.status,
+          bushfire: bushfireLookup.status,
+          flooding: floodingLookup.status,
+        },
+        lookupErrors: {
+          zoning: zoningLookup.error,
+          height: heightLookup.error,
+          floorSpaceRatio: fsrLookup.error,
+          heritage: heritageLookup.error,
+          minimumLotSize: lotSizeLookup.error,
+          bushfire: bushfireLookup.error,
+          flooding: floodingLookup.error,
         },
       },
       analysedAt: matchedAt,
-    });
+    };
+
+    if (inputs.reportOrderId || inputs.reportAccessToken) {
+      const reportOrderId = inputs.reportOrderId?.trim().slice(0, 80) ?? "";
+      const reportAccessToken =
+        inputs.reportAccessToken?.trim().slice(0, 160) ?? "";
+      if (!reportOrderId || !reportAccessToken) {
+        return Response.json(
+          { error: "Both report order ID and access token are required." },
+          { status: 400 },
+        );
+      }
+      const repository = await getReportPlatformRepository();
+      const order = await repository.getOrder(reportOrderId);
+      if (!order || !(await tokenMatches(reportAccessToken, order.ownerHash))) {
+        return Response.json(
+          { error: "Property-research authorisation failed." },
+          { status: 403 },
+        );
+      }
+      if (!["draft", "awaiting_uploads"].includes(order.status)) {
+        return Response.json(
+          {
+            error:
+              "Property research cannot be replaced after the order is confirmed.",
+          },
+          { status: 409 },
+        );
+      }
+      order.property = {
+        ...order.property,
+        clientSuppliedAddress: address,
+        officialAddress: fullAddress,
+        lotDp,
+        council,
+        mappedAreaSqm: analysis.mappedParcelAreaSqm,
+        boundaryStatus:
+          areaStatus === "mapped"
+            ? "official_parcel_mapped"
+            : areaStatus === "requires_verification"
+              ? "conflict_detected"
+              : "unavailable",
+        sourceAreaStatus: areaStatus,
+        parcelCount: 1,
+        sourceStatus: "official_source_retrieved",
+        propertyResearchStatus: "complete",
+        propertyResearchProvider: "NSW_OFFICIAL_PROPERTY_RESEARCH_V1",
+        propertyResearchRetrievedAt: matchedAt,
+        identity: analysis.identity,
+        coordinates: analysis.coordinates,
+        parcelId: analysis.parcelId,
+        parcelGeometry: analysis.parcelGeometry,
+        parcelShape: analysis.parcelShape,
+        siteDimensions: analysis.siteDimensions,
+        controls: analysis.controls,
+        planningFields: analysis.planningFields,
+        constraints: analysis.constraints,
+        source: analysis.source,
+      };
+      order.updatedAt = matchedAt;
+      await repository.saveOrder(order);
+      await repository.addOrderEvent({
+        id: crypto.randomUUID(),
+        orderId: order.id,
+        eventType: "official_property_research_completed",
+        actor: "system",
+        metadata: {
+          provider: "NSW_OFFICIAL_PROPERTY_RESEARCH_V1",
+          retrievedAt: matchedAt,
+          parcelId: analysis.parcelId,
+          fieldCount: Object.keys(analysis.planningFields).length,
+        },
+        createdAt: matchedAt,
+      });
+    }
+
+    return Response.json(analysis);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
     console.error("[site-analysis] Live property analysis failed", caught);

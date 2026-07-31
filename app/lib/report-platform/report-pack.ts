@@ -2,6 +2,7 @@ import { zipSync, strToU8 } from "fflate";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { renderMockVisualisationImage } from "./architectural-visualisations";
 import { REPORT_BY_ID } from "./report-catalogue";
+import { REPORT_TEMPLATE_BY_ID } from "./report-template-registry";
 import type {
   ArchitecturalVisualisationRecord,
   DocumentRecord,
@@ -59,8 +60,23 @@ export function uniquePackPath(path: string, used: Set<string>) {
   return unique;
 }
 
+function pdfSafeText(text: string) {
+  return text
+    .replaceAll("—", "-")
+    .replaceAll("–", "-")
+    .replaceAll("’", "'")
+    .replaceAll("‘", "'")
+    .replaceAll("“", '"')
+    .replaceAll("”", '"')
+    .replaceAll("•", "-")
+    .replaceAll("·", "|")
+    .replaceAll("²", "2")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "?");
+}
+
 function wrapText(text: string, maximumCharacters = 88) {
-  const words = text.replace(/\s+/g, " ").trim().split(" ");
+  const words = pdfSafeText(text).replace(/\s+/g, " ").trim().split(" ");
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
@@ -99,17 +115,162 @@ export async function renderStructuredReportPdf(report: StructuredPlanningReport
   y -= 8;
   drawLines(report.propertyReference, 13, regular);
   drawLines(report.watermark, 10, bold, rgb(0.7, 0.18, 0.16));
+  drawLines(
+    `Schema ${report.schemaVersion} | Template ${report.templateVersion}`,
+    8,
+    regular,
+    rgb(0.35, 0.39, 0.36),
+  );
+  drawLines(
+    `Generated ${report.generatedAt} | Pricing ${report.pricingVersion}`,
+    8,
+    regular,
+    rgb(0.35, 0.39, 0.36),
+  );
   y -= 24;
   drawLines(report.limitations.join(" "), 9);
-  for (const section of report.sections) {
+  for (const [sectionIndex, section] of report.sections.entries()) {
+    if (sectionIndex > 0 && sectionIndex % 4 === 0) addPage();
     y -= 18;
     if (y < 100) addPage();
     drawLines(section.heading, 15, bold);
     drawLines(section.summary, 10);
-    for (const bullet of section.bullets) drawLines(`• ${bullet}`, 9);
+    for (const bullet of section.bullets) drawLines(`- ${bullet}`, 9);
     for (const statement of section.statements) {
-      drawLines(`${statement.text} [${statement.sourceId} · ${statement.verificationState}]`, 8, regular, rgb(0.28, 0.31, 0.34));
+      drawLines(`${statement.text} [${statement.sourceId} | ${statement.verificationState}]`, 8, regular, rgb(0.28, 0.31, 0.34));
     }
+    for (const finding of section.findings ?? []) {
+      drawLines(`Finding: ${finding}`, 9);
+    }
+    for (const recommendation of section.recommendations ?? []) {
+      drawLines(`Recommendation: ${recommendation}`, 9);
+    }
+    for (const action of section.requiredActions ?? []) {
+      drawLines(`Required action: ${action}`, 9);
+    }
+    for (const limitation of section.limitations ?? []) {
+      drawLines(
+        `Limitation: ${limitation}`,
+        8,
+        regular,
+        rgb(0.45, 0.24, 0.2),
+      );
+    }
+    for (const extra of section.extraSubsections ?? []) {
+      drawLines(extra.title, 11, bold);
+      drawLines(extra.summary, 9);
+      if (extra.evidenceSourceIds.length) {
+        drawLines(`Evidence: ${extra.evidenceSourceIds.join(", ")}`, 8);
+      }
+    }
+  }
+  const drawSchedule = (
+    heading: string,
+    rows: Array<Record<string, unknown>>,
+  ) => {
+    addPage();
+    drawLines(heading, 18, bold);
+    if (!rows.length) {
+      drawLines("No supported entries were recorded.", 10);
+      return;
+    }
+    for (const [index, row] of rows.entries()) {
+      y -= 8;
+      drawLines(
+        `${index + 1}. ${Object.entries(row)
+          .map(
+            ([key, value]) =>
+              `${key.replaceAll(/([A-Z])/g, " $1")}: ${String(value ?? "Not recorded")}`,
+          )
+          .join(" | ")}`,
+        8,
+      );
+    }
+  };
+
+  drawSchedule("Document register", report.documentRegister);
+  drawSchedule("Planning-control matrix", report.planningControlMatrix);
+  drawSchedule("Risk register", report.riskRegister);
+  drawSchedule("Prioritised action plan", report.actionPlan);
+  if (report.optionComparison.length) {
+    drawSchedule("Options comparison", report.optionComparison);
+  }
+  if ((report.sourceRegister ?? []).length) {
+    drawSchedule("Source and provenance register", report.sourceRegister ?? []);
+  }
+  if (
+    report.professionalReviewRecord &&
+    Object.keys(report.professionalReviewRecord).length
+  ) {
+    drawSchedule("Professional review record", [
+      report.professionalReviewRecord,
+    ]);
+  }
+
+  const acceptedVisuals = (report.visualisations ?? []).filter((visual) =>
+    ["accepted", "approved"].includes(visual.status),
+  );
+  for (const visual of acceptedVisuals) {
+    addPage();
+    drawLines(visual.visualisationType.replaceAll("_", " "), 18, bold);
+    drawLines(visual.caption, 10);
+    drawLines(`Purpose: ${visual.purpose}`, 9);
+    y -= 12;
+    page.drawRectangle({
+      x: 65,
+      y: 345,
+      width: 465,
+      height: 300,
+      color: rgb(0.95, 0.94, 0.9),
+      borderColor: rgb(0.48, 0.42, 0.31),
+      borderWidth: 1,
+    });
+    page.drawRectangle({
+      x: 145,
+      y: 430,
+      width: 185,
+      height: 125,
+      color: rgb(0.78, 0.84, 0.75),
+      borderColor: rgb(0.2, 0.28, 0.23),
+      borderWidth: 2,
+    });
+    page.drawRectangle({
+      x: 345,
+      y: 390,
+      width: 115,
+      height: 175,
+      color: rgb(0.94, 0.75, 0.34),
+      opacity: 0.7,
+      borderColor: rgb(0.55, 0.36, 0.08),
+      borderWidth: 2,
+    });
+    page.drawText("Existing / supported context", {
+      x: 155,
+      y: 490,
+      size: 10,
+      font: bold,
+      color: rgb(0.12, 0.15, 0.18),
+    });
+    page.drawText("Preliminary concept zone", {
+      x: 355,
+      y: 475,
+      size: 9,
+      font: bold,
+      color: rgb(0.25, 0.2, 0.08),
+    });
+    y = 315;
+    for (const legend of visual.legend) {
+      drawLines(
+        `${legend.colour.toUpperCase()}: ${legend.label} (${legend.status})`,
+        8,
+      );
+    }
+    y -= 10;
+    drawLines(visual.disclaimer, 9, bold, rgb(0.55, 0.12, 0.1));
+    drawLines(
+      `Recommended next action: ${visual.recommendedNextAction}`,
+      9,
+    );
   }
   return new Uint8Array(await document.save());
 }
@@ -153,6 +314,49 @@ function rowsToCsv(rows: Array<Record<string, unknown>>) {
   ].join("\n");
 }
 
+export function selectReportView(
+  report: StructuredPlanningReport,
+  selectedReportId: string,
+) {
+  const frozenTemplate = (report.templateSnapshots ?? []).find(
+    (snapshot) => snapshot.reportId === selectedReportId,
+  );
+  if (frozenTemplate) {
+    const sectionCodes = new Set([
+      ...frozenTemplate.requiredSectionCodes,
+      ...frozenTemplate.conditionalSectionCodes,
+    ]);
+    return {
+      ...report,
+      title: frozenTemplate.reportName,
+      templateId: frozenTemplate.templateId,
+      templateVersion: frozenTemplate.templateVersion,
+      sections: report.sections.filter((section) =>
+        sectionCodes.has(section.code),
+      ),
+      templateSnapshots: [frozenTemplate],
+    };
+  }
+  const catalogue = REPORT_BY_ID.get(selectedReportId);
+  const template = catalogue
+    ? REPORT_TEMPLATE_BY_ID.get(catalogue.templateId)
+    : undefined;
+  if (!catalogue || !template) return report;
+  const requiredSectionCodes = new Set([
+    ...template.requiredSections.map((section) => section.code),
+    ...template.conditionalSections.map((section) => section.code),
+  ]);
+  return {
+    ...report,
+    title: catalogue.name,
+    templateId: template.id,
+    templateVersion: template.version,
+    sections: report.sections.filter((section) =>
+      requiredSectionCodes.has(section.code),
+    ),
+  };
+}
+
 async function sha256(bytes: Uint8Array) {
   const source = new Uint8Array(bytes.byteLength);
   source.set(bytes);
@@ -192,26 +396,43 @@ export async function buildReportPack(input: {
   for (const [index, reportId] of reportIds.entries()) {
     const catalogue = REPORT_BY_ID.get(reportId);
     const name = catalogue?.name ?? input.report.title;
-    add(`${String(index + 2).padStart(2, "0")}_${cleanFilename(name)}.pdf`, await renderStructuredReportPdf(input.report, name), "application/pdf");
+    const selectedReport = selectReportView(input.report, reportId);
+    add(`${String(index + 2).padStart(2, "0")}_${cleanFilename(name)}.pdf`, await renderStructuredReportPdf(selectedReport, name), "application/pdf");
   }
 
   const acceptedVisuals = input.visualisations.filter((visual) => ["accepted", "approved"].includes(visual.status));
   for (const [index, visual] of acceptedVisuals.entries()) {
     const provided = input.visualisationBytes?.[visual.id];
+    if (!provided && !visual.provider.toLowerCase().includes("mock")) {
+      throw new Error(
+        `Accepted visualisation ${visual.id} has no authorised stored image bytes.`,
+      );
+    }
     const image = provided
       ? { bytes: provided, mediaType: "image/jpeg", extension: "jpg" }
       : renderMockVisualisationImage(visual);
     add(`10_Concept_Visualisations/${String(index + 1).padStart(2, "0")}_${cleanFilename(visual.visualisationType)}.${image.extension}`, image.bytes, image.mediaType, "accepted_visualisation");
   }
 
-  const sourceRows = input.report.sections.flatMap((section) => section.statements.map((statement) => ({
-    section: section.code,
-    sourceId: statement.sourceId,
-    sourceType: statement.sourceType,
-    sourceStatus: statement.sourceStatus,
-    issueOrRetrievalDate: statement.issueOrRetrievalDate,
-    verificationState: statement.verificationState,
-  })));
+  const citedSections = new Map<string, string[]>();
+  for (const section of input.report.sections) {
+    for (const statement of section.statements) {
+      citedSections.set(statement.sourceId, [
+        ...new Set([
+          ...(citedSections.get(statement.sourceId) ?? []),
+          section.code,
+        ]),
+      ]);
+    }
+  }
+  const sourceRows = (input.report.sourceRegister ?? []).map((source) => {
+    const sourceId = String(source.id ?? source.sourceId ?? "");
+    return {
+      ...source,
+      sourceId,
+      citedSections: (citedSections.get(sourceId) ?? []).join("; "),
+    };
+  });
   add("90_Source_Register.csv", strToU8(rowsToCsv(sourceRows)), "text/csv");
   add("91_Document_Register.csv", strToU8(rowsToCsv(input.report.documentRegister)), "text/csv");
   add("92_Risk_Register.csv", strToU8(rowsToCsv(input.report.riskRegister)), "text/csv");
@@ -228,7 +449,7 @@ export async function buildReportPack(input: {
   if (reportIds.includes("council_readiness")) {
     const councilSections = input.report.sections.filter((section) => /council|readiness|submission|document_register/i.test(section.code));
     const councilLines = councilSections.length
-      ? councilSections.flatMap((section) => [section.heading, section.summary, ...section.bullets.map((bullet) => `• ${bullet}`)])
+      ? councilSections.flatMap((section) => [section.heading, section.summary, ...section.bullets.map((bullet) => `- ${bullet}`)])
       : ["Council-readiness status is preliminary until a registered professional confirms the submission documents."];
     add("96_Council_Readiness_Checklist.pdf", await renderSimplePdf("Council-readiness checklist", councilLines), "application/pdf");
   }
@@ -246,7 +467,21 @@ export async function buildReportPack(input: {
     orderId: input.orderId,
     reportIds,
     reportNames: reportIds.map((id) => REPORT_BY_ID.get(id)?.name ?? input.report.title),
-    templateVersions: [input.report.templateVersion],
+    templateVersions: reportIds.map((reportId) => {
+      const frozenTemplate = (input.report.templateSnapshots ?? []).find(
+        (snapshot) => snapshot.reportId === reportId,
+      );
+      if (frozenTemplate) {
+        return `${frozenTemplate.templateId}@${frozenTemplate.templateVersion}`;
+      }
+      const catalogue = REPORT_BY_ID.get(reportId);
+      const template = catalogue
+        ? REPORT_TEMPLATE_BY_ID.get(catalogue.templateId)
+        : undefined;
+      return template
+        ? `${template.id}@${template.version}`
+        : input.report.templateVersion;
+    }),
     pricingVersion: input.report.pricingVersion,
     generatedAt: new Date().toISOString(),
     files: [],
@@ -264,7 +499,6 @@ export async function buildReportPack(input: {
   const manifestBytes = strToU8(JSON.stringify(manifest, null, 2));
   const manifestPath = uniquePackPath("94_Report_Manifest.json", used);
   files.push({ path: manifestPath, bytes: manifestBytes, mediaType: "application/json", source: "generated" });
-  manifest.files.push({ path: manifestPath, byteSize: manifestBytes.byteLength, sha256: await sha256(manifestBytes), mediaType: "application/json" });
 
   const archiveEntries: Record<string, Uint8Array> = {};
   for (const file of files) archiveEntries[file.path] = file.bytes;

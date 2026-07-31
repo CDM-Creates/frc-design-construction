@@ -9,7 +9,14 @@ const transpile = (source) => ts.transpileModule(source, {
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-const catalogueSource = await read("../app/lib/report-platform/report-catalogue.ts");
+const documentCategoriesUrl = dataUrl(transpile(
+  await read("../app/lib/planning-simulation/document-categories.ts"),
+));
+const catalogueSource = (await read("../app/lib/report-platform/report-catalogue.ts"))
+  .replace(
+    'from "../planning-simulation/document-categories";',
+    `from "${documentCategoriesUrl}";`,
+  );
 const catalogueUrl = dataUrl(transpile(catalogueSource));
 const catalogue = await import(catalogueUrl);
 

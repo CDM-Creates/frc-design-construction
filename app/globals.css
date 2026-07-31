@@ -1453,6 +1453,29 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   margin-top: 1rem;
 }
 
+.project-motivation-panel > .project-motivation-fields {
+  margin-top:1.25rem;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.9rem;
+}
+.project-motivation-panel > .project-motivation-fields label {
+  padding:0;
+  display:grid;
+  gap:.4rem;
+}
+.project-motivation-fields label.wide { grid-column:1/-1; }
+.project-motivation-fields input,
+.project-motivation-fields select,
+.project-motivation-fields textarea {
+  width:100%;
+  min-height:44px;
+  border:1px solid rgba(43,49,45,.25);
+  background:#fff;
+  padding:.8rem;
+}
+.project-motivation-fields textarea { min-height:110px; resize:vertical; }
+
 .project-motivation-panel input[type="text"],
 .project-motivation-panel input:not([type]),
 .reference-material-panel input,
@@ -1470,6 +1493,16 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   background: #f7f5ef;
   padding: 1rem 1.2rem;
   margin: 1rem 0;
+}
+.report-visual-diagram { min-height:260px; margin:1rem 0; padding:2rem; position:relative; overflow:hidden; border:1px solid #c9bda8; background:linear-gradient(135deg,#f2eee6,#e4e8de); }
+.report-visual-diagram span { position:absolute; display:grid; place-items:center; padding:1rem; border:2px solid #34483c; background:rgba(169,191,156,.72); font:9px/1.4 monospace; text-align:center; text-transform:uppercase; }
+.report-visual-diagram span:first-child { left:12%; top:22%; width:42%; height:48%; }
+.report-visual-diagram span:last-child { right:11%; bottom:13%; width:30%; height:58%; border-color:#8a5a1a; background:rgba(236,184,76,.72); }
+.report-visual-card>ul { padding-left:1.2rem; font:10px/1.5 Arial,sans-serif; }
+.report-visual-card>ul b { text-transform:uppercase; }
+
+@media(max-width:700px) {
+  .project-motivation-panel > .project-motivation-fields { grid-template-columns:1fr; }
 }
 
 .report-status-contact {
@@ -2208,7 +2241,7 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .assessment-mode strong { font:16px Georgia,serif; }
 .assessment-mode span { color:#68716b; font-size:11px; line-height:1.45; }
 .planning-upgrades { margin-top:28px; display:grid; gap:10px; }
-.planning-upgrades>label {
+.planning-upgrades>label,.planning-upgrade-included {
   min-height:76px;
   padding:16px 18px;
   display:flex;
@@ -2218,7 +2251,9 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   background:rgba(255,255,255,.52);
   cursor:pointer;
 }
+.planning-upgrade-included { border-color:#80900f; background:#edf4d1; }
 .planning-upgrades>label>span { display:flex; flex-direction:column; gap:5px; }
+.planning-upgrade-included>span { display:flex; flex-direction:column; gap:5px; }
 .planning-upgrades strong { font:15px Georgia,serif; }
 .planning-upgrades small { color:#68716b; font:8px monospace; }
 .document-checklist { margin-top:36px; border:1px solid var(--plan-line); background:#fff; }
@@ -2235,6 +2270,8 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .source-status-list span { font-size:12px; }
 .source-status-list b { padding:7px 9px; border:1px solid #b0b6b1; color:#68716b; font:7px monospace; text-transform:uppercase; }
 .source-status-list b.retrieved { border-color:#80900f; background:#edf4d1; color:#5d680a; }
+.source-status-list b.checked-no-mapped-result { border-color:#8a918c; background:#f1f2ef; color:#58605a; }
+.source-status-list b.lookup-failed-unknown { border-color:#ae5144; background:#f4dfdb; color:#7b3028; }
 .source-status-list b.requires-upload,.source-status-list b.requires-ordering { border-color:#ae7c36; background:#f4ead9; color:#855616; }
 .source-status-list b.requires-professional-review { border-color:#527493; background:#e2edf5; color:#315b7d; }
 .source-footnote { color:#6c756e; font:8px/1.5 monospace; }
@@ -2588,6 +2625,17 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .planning-report-toolbar>div { display:flex; align-items:center; gap:12px; }
 .planning-report-toolbar b { padding:6px 8px; border:1px solid #caff22; color:#caff22; font:7px monospace; text-transform:uppercase; }
 .planning-report-toolbar button { min-height:38px; padding:0 13px; border:1px solid #caff22; background:#caff22; color:#101914; font:7px monospace; text-transform:uppercase; cursor:pointer; }
+.planning-report-downloads { width:min(980px,calc(100% - 40px)); margin:0 auto; padding:24px 32px; display:grid; grid-template-columns:minmax(220px,1fr) minmax(260px,1.35fr); gap:24px; align-items:center; border-bottom:1px solid #d4d5cf; background:#f7f6f1; }
+.planning-report-downloads span { color:#697600; font:8px monospace; text-transform:uppercase; }
+.planning-report-downloads h2 { margin:8px 0; font:400 25px/1.1 Georgia,serif; }
+.planning-report-downloads p { margin:0; color:#59635d; font:11px/1.5 Arial,sans-serif; }
+.planning-report-downloads>div:last-child { display:grid; gap:8px; }
+.planning-report-downloads button { min-height:42px; padding:8px 12px; border:1px solid #17221d; background:#17221d; color:#fff; font:7px/1.4 monospace; text-align:left; text-transform:uppercase; cursor:pointer; }
+.planning-report-downloads button:disabled { cursor:wait; opacity:.65; }
+.planning-report-upload-option { width:min(980px,calc(100% - 40px)); margin:0 auto; padding:18px 32px; border-bottom:1px solid #d4d5cf; background:#f7f6f1; }
+.planning-report-upload-option label { display:flex; gap:12px; align-items:flex-start; font:11px/1.5 Arial,sans-serif; }
+.planning-report-upload-option input { margin-top:2px; accent-color:#697600; }
+.planning-report-upload-option p { margin:8px 0 0 26px; color:#68716b; font:8px/1.5 monospace; text-transform:uppercase; }
 .planning-report-cover,.planning-report-notice,.planning-report-contents,.planning-report-section,.planning-report-footer { width:min(980px,calc(100% - 40px)); margin:0 auto; background:#fff; }
 .planning-report-cover { position:relative; min-height:760px; padding:70px; display:grid; grid-template-columns:1fr 230px; gap:60px; align-items:start; background:#111a15; color:#fff; overflow:hidden; }
 .planning-report-cover>div>span { color:#caff22; font:9px monospace; text-transform:uppercase; }
@@ -2661,7 +2709,7 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
 .readiness-check-list p { margin:0; color:#68716b; font:10px/1.5 Arial,sans-serif; }
 
 @media(max-width:800px) {
-  .document-metadata-fields,.package-anchors,.report-status-page>header,.reviewer-identity-fields,.readiness-gates { grid-template-columns:1fr; }
+  .document-metadata-fields,.package-anchors,.report-status-page>header,.reviewer-identity-fields,.readiness-gates,.planning-report-downloads { grid-template-columns:1fr; }
   .package-anchors article { border-right:0; border-bottom:1px solid var(--plan-line); }
   .package-anchors article:last-child { border-bottom:0; }
   .checkout-review-card dl>div { grid-template-columns:1fr; gap:7px; }
@@ -2681,14 +2729,14 @@ main > footer > div:last-child { justify-self: end; display: flex; flex-directio
   .document-file-list progress { width:100%; }
   .mock-checkout-page,.report-status-page { padding:22px 15px 100px; }
   .report-status-stages strong { font-size:16px; }
-  .planning-report-cover,.planning-report-notice,.planning-report-contents,.planning-report-section,.planning-report-footer { width:100%; }
+  .planning-report-cover,.planning-report-notice,.planning-report-contents,.planning-report-section,.planning-report-footer,.planning-report-downloads,.planning-report-upload-option { width:100%; }
   .planning-report-section h2 { font-size:36px; }
   .planning-report-toolbar { position:static; }
 }
 
 @page { size:A4; margin:15mm 13mm 18mm; }
 @media print {
-  .planning-report-toolbar { display:none!important; }
+  .planning-report-toolbar,.planning-report-downloads,.planning-report-upload-option { display:none!important; }
   .planning-report-document { background:#fff!important; }
   .planning-report-cover,.planning-report-notice,.planning-report-contents,.planning-report-section,.planning-report-footer { width:100%; max-width:none; }
   .planning-report-cover { min-height:245mm; padding:18mm; page-break-after:always; print-color-adjust:exact; -webkit-print-color-adjust:exact; }

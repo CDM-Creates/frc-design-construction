@@ -1,4 +1,5 @@
 import type {
+  DocumentAnalysisUpgradeCode,
   DocumentCategoryCode,
   FrozenPriceSnapshot,
   PlanningPricingInput,
@@ -104,6 +105,7 @@ export type ReportOrder = {
     selectedItems: SelectedDevelopmentItem[];
     availableDocumentCategories: DocumentCategoryCode[];
     pricingInput: PlanningPricingInput | null;
+    documentAnalysisUpgrades?: DocumentAnalysisUpgradeCode[];
     notes: string;
     selectedReportIds?: string[];
     projectMotivation?: Record<string, unknown>;
@@ -209,7 +211,7 @@ export type StructuredReportSection = {
 };
 
 export type StructuredPlanningReport = {
-  schemaVersion: "FRC_REPORT_SCHEMA_V1";
+  schemaVersion: "FRC_REPORT_SCHEMA_V2";
   templateId: string;
   templateVersion: string;
   reportId: string;
@@ -229,6 +231,16 @@ export type StructuredPlanningReport = {
   riskRegister: Array<Record<string, unknown>>;
   actionPlan: Array<Record<string, unknown>>;
   optionComparison: Array<Record<string, unknown>>;
+  sourceRegister: Array<Record<string, unknown>>;
+  templateSnapshots: Array<{
+    reportId: string;
+    reportName: string;
+    templateId: string;
+    templateVersion: string;
+    requiredSectionCodes: string[];
+    conditionalSectionCodes: string[];
+  }>;
+  professionalReviewRecord?: Record<string, unknown> | null;
   limitations: string[];
   visualisations?: ArchitecturalVisualisationRecord[];
 };

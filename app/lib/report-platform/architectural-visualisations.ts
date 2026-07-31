@@ -230,7 +230,17 @@ export function validateArchitecturalVisualisation(input: {
   if (motivation && !output.caption.toLowerCase().includes(motivation.toLowerCase())) {
     issues.push("The visualisation does not include the client motivation.");
   }
-  const sensitiveInterpretation = ["constraint_overlay", "services_plumbing", "before_after"].includes(request.requiredVisualisationType);
+  const sensitiveInterpretation =
+    request.requiredVisualisationType === "before_after" ||
+    (request.requiredVisualisationType === "services_plumbing" &&
+      hasSupportedServices) ||
+    (request.requiredVisualisationType === "constraint_overlay" &&
+      (request.boundaryStatus === "conflict_detected" ||
+        request.planningConstraints.some(
+          (constraint) =>
+            constraint.sourceStatus ===
+            "requires_professional_confirmation",
+        )));
   return {
     valid: issues.length === 0,
     issues,

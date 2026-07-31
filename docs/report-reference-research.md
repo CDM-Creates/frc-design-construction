@@ -74,4 +74,4 @@ These are market references, not claims about an industry average:
 - Plan Review advertises a focused residential plan review at A$395 plus GST: <https://www.planreview.com.au/>
 - Town Planning Online advertises bespoke assessments from A$399 and full planning reports from A$990: <https://www.townplanning.com.au/property-report>
 
-FRC’s launch prices come from the approved `FRC_REPORT_PRICING_2026_01` configuration, not from a claimed market average. The references support positioning the A$795 core as a substantial preliminary service while reserving higher minimum engagements for professional and council-readiness work.
+FRC’s foundation launch prices come from the approved `FRC_REPORT_PRICING_2026_02` configuration, not from a claimed market average or a fictitious former price. The references support positioning the A$695 Property Intelligence Report as a substantial preliminary service while reserving minimum A$2,195 professionally reviewed and from A$3,500 council-readiness engagements for work with the matching evidence and human-release controls.

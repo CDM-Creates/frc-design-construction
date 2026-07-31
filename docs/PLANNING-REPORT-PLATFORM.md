@@ -1,200 +1,169 @@
 # FRC planning report platform
 
-## Final pre-provider extension
+## Current implementation
 
-The platform now includes the versioned complete-report catalogue, customer/decision recommendations, launch pricing, shared-research credits, site-area tiers, boundary and reference contracts, mandatory templates, mock text/visual providers, visual safety routing, server PDFs, secure ZIP packs, one-time completion-email control and section-specific disputes.
+The repository contains a complete test-mode planning-report workflow: customer/report selection, official NSW source scan, private uploads, server-owned pricing, signed mock checkout, queued report generation, fixed structured report templates, visualisation validation, professional review, secure web/PDF/ZIP delivery, completion notifications and section-specific disputes.
 
-Live payment, report AI and architectural image generation remain disabled. D1 and private R2 adapters are connected to the hosted bindings. Production readiness continues to fail closed until the deployed bindings/migrations, malware scanning, email/domain, legal/tax/business settings and real provider credentials are verified. See the dedicated catalogue, template, visualisation, pack and marketing documents.
-
-## System overview
-
-The report platform turns a simulator scope into a persistent, auditable order. It uses deterministic pricing and workflow rules, private document storage, verified payment events, structured report packages, automated safety validation and conditional professional review.
-
-Live payment and live report AI are intentionally disabled. Local test mode supplies deterministic adapters so the complete client journey can be reviewed without credentials or charges.
+Live payment, live report AI and live image generation remain disabled. Production mode fails closed until the external services and business settings described below are configured.
 
 ```mermaid
 flowchart LR
-  A[Simulator scope] --> B[Draft order]
-  B --> C[Private uploads]
-  C --> D[Server price snapshot]
-  D --> E[Checkout review and consents]
-  E --> F[PaymentProvider]
-  F -->|verified paid event| G[Report job]
-  G --> H[Document classification]
-  H --> I[ReportAiProvider]
-  I --> J[Evidence validation]
-  J -->|AI-only| K[Secure release]
-  J -->|verification required| L[FRC review queue]
-  L --> K
-  K --> M[Web report and print-ready A4]
+  A[Secure draft] --> B[Official NSW source scan]
+  B --> C[Reports and client context]
+  C --> D[Private uploads]
+  D --> E[Source-status review]
+  E --> F[Server price snapshot]
+  F --> G[Signed mock checkout]
+  G -->|verified paid event| H[Queued report job]
+  H --> I[Evidence and document scope]
+  I --> J[Structured mock provider]
+  J --> K[Report and visual validation]
+  K -->|AI-assisted release| L[Secure delivery]
+  K -->|review required| M[FRC review queue]
+  M --> L
 ```
 
-## Pricing
+## Catalogue and pricing
 
-- Version: `FRC_REPORT_PRICING_2026_01`
-- Core report: A$795
-- Every actual development assessment adds its explicit catalogue fee
-- Two or more assessments add A$350 once
-- Categories never affect price
-- Document upload alone never affects price
-- Premium technical interpretation, large-site analysis, detailed alternatives, professional review, priority and council readiness are explicit line items
-- Professional verification has an A$2,495 minimum
-- Council-readiness has an A$4,000 minimum
-- Tailored engagements display “from A$3,500” but never create a payable total
-- All amounts are integer cents
-- The order stores an immutable price snapshot, pricing version and input hash
+- Catalogue: `FRC_REPORT_CATALOGUE_2026_01`
+- Pricing: `FRC_REPORT_PRICING_2026_02`
+- Property Intelligence launch price: A$695
+- Development Potential, Granny Flat and Extension/Renovation: A$995
+- Single-Storey Dwelling and Plan Compliance: A$1,295
+- Two-Storey Dwelling, Investor Options and Detailed Options: A$1,495
+- Pool/Outdoor: A$695; Garage/Outbuilding: A$795
+- Professionally reviewed engagement: minimum A$2,195 total
+- Council readiness: from A$3,500
+- Complex, multiple-lot, rural/non-standard and over-10,000 m² work: tailored from A$3,500
 
-The configured GST status determines whether the snapshot states “AUD including GST” or “GST not applicable”. Test mode displays an explicit unconfigured warning. Production checkout is blocked until GST status is confirmed.
+Customer type changes recommendations and emphasis, never price. The server calculates integer-cent lines, shared research credits, authoritative land-size adjustments, review minimums, priority and document-analysis upgrades. Review minimums are applied before priority and chargeable document analysis, so these upgrades cannot disappear inside the minimum. Analysis included by a selected premium report is not charged twice.
 
-## Database tables
+The client estimate is advisory. Confirmation returns and stores an immutable server snapshot, version and input hash. Confirm/checkout are retry-safe: a ready or awaiting-payment order replays the same frozen snapshot, and a new mock session can be issued without creating or repricing the order.
 
-- `report_orders`: client, property, scope, report type, frozen price, consents, payment and review routing
-- `report_order_events`: append-only workflow audit events
-- `report_documents`: private storage references, hashes, metadata, extraction and review state
-- `report_payment_events`: unique verified provider events and idempotency keys
-- `report_jobs`: generation stage, provider, template, schema, attempts and failures
-- `report_sections`: structured section content, citations, validation and revision
-- `final_planning_reports`: structured report, web/PDF references, reviewer record and release status
-- `report_notifications`: email/log delivery attempts and failures
+## Official source scan
+
+The catalogue workflow cannot confirm an order or generate a report until its authenticated draft has a completed property-research record. The NSW source scan persists:
+
+- client and matched official address;
+- selected Lot/DP and council;
+- mapped parcel area, geometry, shape and indicative dimensions;
+- zoning, LEP, building height, FSR and minimum-lot-size lookups;
+- heritage, bushfire and flood screening;
+- source URLs/names, layer statuses, errors and retrieval dates.
+
+Each optional layer is `mapped`, `not_mapped` or `lookup_failed`. A failed service is never interpreted as a clear constraint result. Client area remains separate from mapped area; a material difference becomes `conflict_detected`. Mapped geometry remains indicative and cannot be described as surveyed.
+
+Title, deposited-plan evidence, registered survey, Section 10.7, utility locations and council-specific DCP material are not fabricated. They remain unavailable, require a supplied document/order, or route to professional confirmation.
 
 ## Upload lifecycle
 
-1. Checking a document creates `selected_awaiting_upload` in the client workflow.
-2. A private draft order and owner token are created on the server.
-3. Each file is validated for category, extension, MIME, file signature, size and order limits.
-4. The server sanitises the filename and records SHA-256.
-5. Bytes are written to isolated local test storage or the hosted private R2 binding; the database stores only the private storage reference.
-6. The API returns safe metadata, never the storage reference or public URL.
-7. Automated interpretation accepts PDF and supported raster images. DWG/DXF remain manual-only and require a PDF export.
-8. A real malware provider must return a clean result before production processing. The mock scanner reports unavailable and the readiness gate remains blocked.
+1. Selecting a document category marks it as awaiting upload.
+2. The client obtains a secure draft/order token.
+3. The server validates category, extension, MIME, binary signature, size and order limits.
+4. The server sanitises the filename, hashes the bytes and writes them to isolated local test storage or private R2.
+5. The browser receives safe metadata only.
+6. After upload/removal and before Continue/final confirmation, the wizard reconciles with the authenticated server document register.
+7. Every selected category must have a successful server record; an unselected stored file is excluded from report generation.
 
-Limits: 25 MB per file, 10 files per category, 150 MB per order.
+Limits are 25 MB per file, 10 files per category and 150 MB per order. PDF and supported raster images can enter automated interpretation; DWG/DXF remain manual-only and require a supported export for a paid automated-analysis scope.
 
-## Payment lifecycle
+Basic upload/register handling is included. Technical interpretation is either included by the selected report or an explicit add-on. The order endpoint verifies a matching eligible upload before accepting a paid analysis upgrade.
 
-`PaymentProvider` defines checkout creation, webhook verification, retrieval and optional refund. The mock provider issues a signed, expiring checkout token and supports success, failure and expiry. Provider event IDs and idempotency keys are unique.
+A production malware provider must mark files clean before release or raw-pack inclusion. The mock scanner remains intentionally insufficient for production readiness.
 
-The success redirect never starts generation. Only the verified server event can set `paid` and create a report job. Set `PAYMENTS_LIVE_ENABLED=false` until the readiness validator allows launch.
+## Database and lifecycle
 
-## AI lifecycle
+The platform persists:
 
-`ReportAiProvider` defines:
+- `report_orders`
+- `report_order_events`
+- `report_documents`
+- `report_payment_events`
+- `report_jobs`
+- `report_sections`
+- `final_planning_reports`
+- `report_notifications`
+- dispute/review and auxiliary platform tables defined by the migration bundle
 
-- `generateSection`
-- `validateSection`
-- `synthesiseReport`
+Unique payment event IDs and snapshot keys provide idempotency. Valid state transitions prevent browser-side status skipping. Verified mock payment creates a queued job and schedules generation after the response; the status page polls until generation, review or release reaches a terminal client-visible state.
 
-`MockReportAiProvider` creates deterministic, schema-valid test content. It records evidence gaps instead of inventing controls or external documents. `UnconfiguredReportAiProvider` fails safely.
+Local test mode uses ignored SQLite/private filesystem storage. Hosted mode uses D1 and the private `PROJECT_FILES` R2 binding.
 
-To connect a future provider, implement the interface, register it in `getReportAiProvider`, keep credentials server-only, validate every section and retain the same `FrcReportGenerationInputV1`/`FRC_REPORT_SCHEMA_V1` contracts.
+## Structured reports and mock AI
 
-## Report lifecycle
+The report contract is `FRC_REPORT_GENERATION_INPUT_V2` → `FRC_REPORT_SCHEMA_V2`, using `FRC_REPORT_TEMPLATES_2026_02` and `FRC_REPORT_PROMPTS_2026_02`.
 
-The platform constructs a versioned template with core sections, one assessment section per selected item, combined/options analysis where needed, required tables and limitations. Generated statements carry source identity, source type/status, date, verification state and review requirement.
+All 15 catalogue products have a fixed detailed section list. Every report also receives the 25-section FRC evidence baseline. The order freezes each selected template’s ID, name, version and section codes. Separate report PDFs therefore remain stable even if the registry changes later.
 
-Coverage statuses:
+The deterministic mock provider:
 
-- `supported_by_official_source`
-- `supported_by_client_upload`
-- `generated_frc_analysis`
-- `missing_external_document`
-- `requires_professional_review`
-- `unavailable`
-- `conflict_detected`
+- consumes the trusted source register, client context and frozen template;
+- relies on uploaded technical facts only when analysis is included or purchased;
+- labels official, client, generated, missing, unavailable, conflict and review states;
+- builds document, planning-control, source, risk, action and option schedules;
+- never changes price or approves release.
+
+Validation rejects missing/duplicate/misordered sections, altered headings, unknown sources, unsupported evidence status, missing official retrieval dates, prohibited claims and template/schema mismatch.
+
+## Concept visualisations
+
+The server-only provider boundary covers concept, before/after, constraint, plumbing/services and comparison visuals. Inputs include property facts, parcel geometry, client motivation, references, uploads and known/unknown constraints. Mock SVGs include legends, confidence/status labels, disclaimers and next actions.
+
+Visual validation blocks unsupported exact boundaries, inferred service routes, copied designs, missing disclaimers and other prohibited claims. Sensitive or materially asserted visuals route to professional review; neutral unknown/disclaimed diagrams can remain preliminary.
 
 ## Professional review
 
-Review is mandatory for purchased verification, council-readiness and safety escalation. AI-only orders bypass the urgent queue after automated validation. A reviewed report cannot be released until an authorised reviewer records a real name, legally accurate role and notes.
+Paid review, council readiness and safety escalations enter the protected queue. Release requires a real reviewer name and legally accurate role. Approval records jurisdiction/registration where supplied, reviewed sections, corrections, observations, unresolved matters, limitations, decision, timestamp and revision. Requesting changes and final approval both create audit events.
 
-The system does not display “Registered architect” or a registration number unless a completed human review record contains verified jurisdiction and registration details.
+The system does not invent a registration number or present an AI draft as professionally reviewed.
 
-## Notifications
+## Web, PDF, ZIP, email and disputes
 
-Internal notification subjects distinguish paid review, priority review, ordinary AI orders and safety escalation. Local test mode records notifications with a mock provider. Delivery failure never rolls back an order, payment or report.
+Released reports have authenticated web and PDF endpoints. Multi-report orders offer a combined PDF and one immutable, template-filtered PDF per purchased report.
 
-## Security decisions
+ZIP packs contain read-me/boundary PDFs, individual reports, accepted visuals, source/document/risk CSVs, action plan, manifest, optional professional/council records and—only after an unticked explicit ownership confirmation—clean private client uploads. Third-party reference files are never copied.
 
-- private storage only
-- no permanent public upload URLs
-- hashed owner/report access tokens
-- short-lived bearer access retained in session storage only; persisted scope excludes plaintext tokens
-- no file bytes or URLs in browser storage
-- server-authoritative price snapshots
-- signed, expiring mock payment events
-- unique webhook/event idempotency
-- no card data in report packages
-- no live AI or payment secrets exposed to the browser
-- filename sanitisation and signature checks
-- production blocked without malware scanning, storage, tax and legal configuration
+Completion delivery is idempotent and uses a mock notification provider in local mode. Email failure is recorded and does not roll back payment or report state. Clients can submit a factual concern against a specific section; one included factual-correction entitlement is enforced.
 
-## Environment variables
+## Security controls
 
-See `.env.example`. Report-platform values are separate from the existing design-simulation provider settings. Never prefix secrets with `NEXT_PUBLIC_`.
+- private storage only; no public upload URL;
+- hashed owner/report tokens;
+- plaintext access tokens kept in session storage, not local persisted scope;
+- no browser-controlled price, payment event or release decision;
+- signed expiring mock payment token;
+- strict upload signatures and filename/path sanitisation;
+- SSRF-safe public reference metadata fetches;
+- no card data, secrets, prompts or private paths in report packs;
+- release and pack expiry checks;
+- live AI/payment/image providers disabled by default;
+- readiness gates for tax, legal, storage, migrations, malware, email and providers.
 
-## Migrations
-
-Generate after schema changes:
+## Local verification
 
 ```powershell
-npm run db:generate
+npm install
+npx tsc --noEmit
+npm run lint
+node --test --test-isolation=none
+npm run build
+npm run db:verify
 ```
 
-Apply the generated SQL through the hosted D1 migration workflow before production launch. Local test mode creates its ignored SQLite schema automatically.
+Keep `FRC_PLATFORM_MODE=test`, `PAYMENTS_LIVE_ENABLED=false`, `REPORT_AI_PROVIDER=mock` and `REPORT_AI_ENABLED=false` while testing.
 
-## Local test setup
+## Production dependencies and limitations
 
-1. Keep `FRC_PLATFORM_MODE=test`, `PAYMENTS_LIVE_ENABLED=false`, `REPORT_AI_PROVIDER=mock` and `REPORT_AI_ENABLED=false`.
-2. Run `npm run dev`.
-3. Complete `/simulator`, including one upload for every checked document.
-4. Accept the consent records and continue to mock payment.
-5. Simulate success, failure or expiry.
-6. Successful AI-only orders open a persistent report status and branded web report.
-7. Professional-review orders wait in `/admin/report-reviews`.
-8. Use browser Print / Save as PDF to test the print-ready A4 layout.
+- Confirm legal name, ABN, GST treatment, refund policy and published legal URLs.
+- Apply/verify all D1 migrations and backup/restore procedures.
+- Verify private R2 retention and authenticated access.
+- Connect malware scanning.
+- Connect and verify an email domain/provider and FRC delivery addresses.
+- Implement a live payment adapter and raw webhook verification.
+- Implement/evaluate a live OpenAI structured-output adapter.
+- Implement/evaluate live visual generation if desired.
+- Replace shared admin tokens with identity-aware reviewer administration.
+- Load-test and, if required, stream very large report packs.
+- Run visual QA against realistic generated reports and uploaded documents.
 
-Test records are clearly marked and cannot be represented as paid production engagements.
-
-## Replacing `MockPaymentProvider`
-
-Implement `PaymentProvider`, select it only after credentials are configured, verify raw webhook signatures before parsing events, map provider events idempotently and keep report generation behind the verified `paid` transition. Do not reuse the mock token scheme in production.
-
-## Replacing `MockReportAiProvider`
-
-Implement `ReportAiProvider` using the existing structured input/output schemas. Add extraction and report evals, enforce evidence citations, reject unsupported factual states and retain completed sections on retry. Keep pricing and order routing outside the model.
-
-## Report templates and renderer
-
-- Templates: `app/lib/planning-simulation/report-templates.ts`
-- Structured report types: `app/lib/report-platform/types.ts`
-- Web/print report: `app/planning-report/[reportId]`
-
-The authenticated web report is print-ready, and the server PDF/ZIP renderer produces release-gated downloadable artifacts. Run visual QA and large-pack load tests before treating those artifacts as final production deliverables.
-
-## Readiness validator
-
-Open `/admin/report-platform-readiness` and supply the administrator token. It reports only status and safe detail; it never returns secret values.
-
-## Known limitations
-
-- Production D1/R2 bindings and applied migrations require hosted-runtime verification.
-- The malware scanner is unconfigured.
-- The local mock extractor uses metadata fixtures and does not read document contents.
-- Server PDF/ZIP generation is implemented in memory; large-pack streaming and load limits still require production testing.
-- Email uses a mock log in local mode.
-- Reviewer authentication is a shared server token; production should use identity-aware authorisation.
-- Client report links use high-entropy bearer fragments in this foundation; production should add identity-aware access or expiring link rotation for higher-risk engagements.
-
-## Production launch checklist
-
-- confirm legal name, ABN and GST status
-- publish terms, privacy, refund and report-limitations pages/URLs
-- verify reviewer title and any registration details
-- apply D1 migrations and verify backups
-- verify the deployed private R2 binding, D1 migrations, retention and authenticated access
-- connect malware scanning
-- verify Resend domain and head-architect routing
-- implement the live payment provider and webhook secret
-- implement the live report-AI provider and safety evals
-- visually verify generated PDFs and ZIP packs, including large-pack load testing
-- run readiness validator until every required check is ready
-- enable live services only after a controlled end-to-end production test
+No live service should be enabled until the readiness screen reports every required production gate as ready.

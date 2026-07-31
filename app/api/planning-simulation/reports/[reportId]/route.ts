@@ -1,4 +1,5 @@
 import { getReportPlatformRepository } from "../../../../lib/report-platform/repository";
+import { REPORT_BY_ID } from "../../../../lib/report-platform/report-catalogue";
 import { tokenMatches } from "../../../../lib/report-platform/security";
 
 export async function GET(request: Request, context: { params: Promise<{ reportId: string }> }) {
@@ -19,5 +20,9 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
     },
     testMode: order.isTest,
     pdfAvailable: Boolean(report.pdfReference),
+    selectedReports: (order.scope.selectedReportIds ?? []).map((id) => ({
+      id,
+      name: REPORT_BY_ID.get(id)?.name ?? id,
+    })),
   }, { headers: { "Cache-Control": "private, no-store" } });
 }

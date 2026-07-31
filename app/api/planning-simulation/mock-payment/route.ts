@@ -1,5 +1,9 @@
+import { after } from "next/server";
 import { getPaymentProvider } from "../../../lib/report-platform/payment-provider";
-import { runMockReportGeneration } from "../../../lib/report-platform/report-generation";
+import {
+  createQueuedMockReportJob,
+  runMockReportGeneration,
+} from "../../../lib/report-platform/report-generation";
 import { getReportPlatformRepository } from "../../../lib/report-platform/repository";
 
 export async function POST(request: Request) {
@@ -20,13 +24,28 @@ export async function POST(request: Request) {
       eventType: event.eventType,
       verified: event.verified,
       safeMetadata: event.safeMetadata,
-      processingStatus: "processed",
+      processingStatus: "generation_queued",
       idempotencyKey: event.providerEventId,
       createdAt: new Date().toISOString(),
     });
     if (eventResult === "duplicate") {
-      const existingJobs = await repository.listReportJobs(order.id);
-      return Response.json({ duplicate: true, jobId: existingJobs[0]?.id ?? null });
+      const paidOrderId = order.id;
+      const existingJobs = await repository.listReportJobs(paidOrderId);
+      const existingJob = existingJobs[0] ?? (
+        order.paymentStatus === "paid"
+          ? await createQueuedMockReportJob(paidOrderId)
+          : null
+      );
+      if (existingJob?.status === "queued") {
+        after(async () => {
+          try {
+            await runMockReportGeneration(paidOrderId, existingJob.id);
+          } catch (error) {
+            console.error("[report-generation] Queued mock report failed", error);
+          }
+        });
+      }
+      return Response.json({ duplicate: true, jobId: existingJob?.id ?? null });
     }
     if (order.status !== "awaiting_payment") throw new Error("The order is not awaiting payment.");
     order = await repository.transitionOrder(order.id, "payment_processing", "mock_payment_provider");
@@ -49,12 +68,17 @@ export async function POST(request: Request) {
     order.updatedAt = new Date().toISOString();
     await repository.saveOrder(order);
     await repository.transitionOrder(order.id, "paid", "mock_payment_provider", { providerEventId: event.providerEventId });
-    const generated = await runMockReportGeneration(order.id);
+    const job = await createQueuedMockReportJob(order.id);
+    after(async () => {
+      try {
+        await runMockReportGeneration(order.id, job.id);
+      } catch (error) {
+        console.error("[report-generation] Queued mock report failed", error);
+      }
+    });
     return Response.json({
       outcome: "success",
-      jobId: generated.job.id,
-      reportId: generated.report.id,
-      reportAccessToken: generated.reportAccessToken,
+      jobId: job.id,
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Mock payment could not be processed." }, { status: 400 });

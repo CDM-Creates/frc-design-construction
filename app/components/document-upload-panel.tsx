@@ -36,6 +36,7 @@ const size = (bytes: number) => {
 export function DocumentUploadPanel(props: {
   category: DocumentCategoryDefinition;
   documents: UploadedDocumentSummary[];
+  premiumIncluded: boolean;
   premiumSelected: boolean;
   onPremiumChange: (selected: boolean) => void;
   ensureDraft: () => Promise<{ orderId: string; accessToken: string }>;
@@ -52,21 +53,22 @@ export function DocumentUploadPanel(props: {
   const [revision, setRevision] = useState("");
   const [clientNote, setClientNote] = useState("");
   const [removing, setRemoving] = useState("");
+  const [panelError, setPanelError] = useState("");
 
   const sendFile = async (item: PendingUpload) => {
-    const credentials = await props.ensureDraft();
-    const form = new FormData();
-    form.set("orderId", credentials.orderId);
-    form.set("accessToken", credentials.accessToken);
-    form.set("category", props.category.code);
-    form.set("author", author);
-    form.set("issueDate", issueDate);
-    form.set("revision", revision);
-    form.set("clientNote", clientNote);
-    form.set("file", item.file);
     props.onBusyChange(true);
     setPending((current) => current.map((entry) => entry.key === item.key ? { ...entry, state: "uploading", progress: 0, error: "" } : entry));
     try {
+      const credentials = await props.ensureDraft();
+      const form = new FormData();
+      form.set("orderId", credentials.orderId);
+      form.set("accessToken", credentials.accessToken);
+      form.set("category", props.category.code);
+      form.set("author", author);
+      form.set("issueDate", issueDate);
+      form.set("revision", revision);
+      form.set("clientNote", clientNote);
+      form.set("file", item.file);
       const document = await new Promise<UploadedDocumentSummary>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/planning-simulation/documents");
@@ -118,9 +120,11 @@ export function DocumentUploadPanel(props: {
   };
 
   const remove = async (documentId: string) => {
-    const credentials = await props.ensureDraft();
+    props.onBusyChange(true);
     setRemoving(documentId);
+    setPanelError("");
     try {
+      const credentials = await props.ensureDraft();
       const response = await fetch(`/api/planning-simulation/documents/${documentId}`, {
         method: "DELETE",
         headers: { "X-FRC-Order-Token": credentials.accessToken },
@@ -128,8 +132,15 @@ export function DocumentUploadPanel(props: {
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "The document could not be removed.");
       props.onRemoved(documentId);
+    } catch (error) {
+      setPanelError(
+        error instanceof Error
+          ? error.message
+          : "The document could not be removed.",
+      );
     } finally {
       setRemoving("");
+      props.onBusyChange(false);
     }
   };
 
@@ -178,13 +189,22 @@ export function DocumentUploadPanel(props: {
       </div>
 
       {props.category.premiumUpgradeCode && (
-        <label className="document-premium-option">
-          <input type="checkbox" checked={props.premiumSelected} onChange={(event) => props.onPremiumChange(event.target.checked)} />
-          <span>
-            <strong>{props.category.premiumLabel}</strong>
-            <small>+A${Math.round((props.category.premiumFeeCents ?? 0) / 100).toLocaleString("en-AU")} · charged for substantial interpretation, not merely for uploading</small>
-          </span>
-        </label>
+        props.premiumIncluded ? (
+          <div className="document-premium-option included">
+            <span>
+              <strong>{props.category.premiumLabel}</strong>
+              <small>Included in the selected report price — no separate document-analysis fee</small>
+            </span>
+          </div>
+        ) : (
+          <label className="document-premium-option">
+            <input type="checkbox" checked={props.premiumSelected} onChange={(event) => props.onPremiumChange(event.target.checked)} />
+            <span>
+              <strong>{props.category.premiumLabel}</strong>
+              <small>+A${Math.round((props.category.premiumFeeCents ?? 0) / 100).toLocaleString("en-AU")} · charged for substantial interpretation, not merely for uploading</small>
+            </span>
+          </label>
+        )
       )}
 
       <div className="document-file-list" aria-live="polite">
@@ -206,6 +226,7 @@ export function DocumentUploadPanel(props: {
       {!props.documents.length && !pending.length && (
         <p className="document-awaiting-message">You marked this document as available. Upload at least one file or untick the document.</p>
       )}
+      {panelError && <p className="document-awaiting-message" role="alert">{panelError}</p>}
       <p className="document-security-note">Files remain private and no permanent public URL is created. Local test mode uses isolated storage; hosted mode uses the private R2 binding. Live launch remains blocked until malware scanning is verified.</p>
     </div>
   );

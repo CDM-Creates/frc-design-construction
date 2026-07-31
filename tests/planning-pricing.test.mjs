@@ -38,8 +38,8 @@ const input = (selectedItemCodes, patch = {}) => ({
 
 test("the core report and every selected assessment add their explicit fees", () => {
   const result = calculatePlanningPrice(input(["POOL_SPA"]));
-  assert.equal(result.corePriceCents, 79_500);
-  assert.equal(result.totalCents, 104_500);
+  assert.equal(result.corePriceCents, 69_500);
+  assert.equal(result.totalCents, 94_500);
   assert.equal(result.assessmentCount, 1);
   assert.equal(result.lineItems.find((line) => line.code === "ASSESSMENT_POOL_SPA")?.amountCents, 25_000);
 });
@@ -48,7 +48,7 @@ test("category navigation cannot affect a price", () => {
   const first = calculatePlanningPrice(input(["NEW_TWO_STOREY_DWELLING"]));
   const second = calculatePlanningPrice(input(["NEW_TWO_STOREY_DWELLING"]));
   assert.equal(first.totalCents, second.totalCents);
-  assert.equal(first.totalCents, 144_500);
+  assert.equal(first.totalCents, 134_500);
 });
 
 test("every billable catalogue item has a pricing rule", () => {
@@ -59,30 +59,30 @@ test("every billable catalogue item has a pricing rule", () => {
 test("duplicate selections do not duplicate an assessment", () => {
   const result = calculatePlanningPrice(input(["POOL_SPA", "POOL_SPA"]));
   assert.equal(result.assessmentCount, 1);
-  assert.equal(result.totalCents, 104_500);
+  assert.equal(result.totalCents, 94_500);
 });
 
 test("two or more assessments add one coordination fee", () => {
   const two = calculatePlanningPrice(input(["POOL_SPA", "ATTACHED_GRANNY_FLAT"]));
-  assert.equal(two.totalCents, 179_000);
+  assert.equal(two.totalCents, 169_000);
   assert.equal(two.lineItems.filter((line) => line.code === "COMBINED_SITE_COORDINATION").length, 1);
   const three = calculatePlanningPrice(input(["POOL_SPA", "ATTACHED_GRANNY_FLAT", "PERGOLA"]));
   assert.equal(three.lineItems.filter((line) => line.code === "COMBINED_SITE_COORDINATION").length, 1);
 });
 
-test("professional review applies its fee and transparent A$2,495 minimum", () => {
+test("professional review applies its fee and transparent A$2,195 launch minimum", () => {
   const result = calculatePlanningPrice(input(["POOL_SPA"], { professionalVerificationRequested: true }));
-  assert.equal(result.totalCents, 249_500);
+  assert.equal(result.totalCents, 219_500);
   assert.equal(result.lineItems.find((line) => line.code === "FRC_PROFESSIONAL_VERIFICATION")?.amountCents, 89_500);
   assert.ok(result.lineItems.some((line) => line.code === "PROFESSIONAL_REVIEW_MINIMUM_ADJUSTMENT"));
 });
 
-test("council readiness applies its fee and transparent A$4,000 minimum", () => {
+test("council readiness applies its fee and transparent A$3,500 launch minimum", () => {
   const result = calculatePlanningPrice(input(["POOL_SPA"], {
     professionalVerificationRequested: true,
     councilSubmissionRequested: true,
   }));
-  assert.equal(result.totalCents, 400_000);
+  assert.equal(result.totalCents, 350_000);
   assert.ok(result.lineItems.some((line) => line.code === "COUNCIL_READINESS_MINIMUM_ADJUSTMENT"));
 });
 
@@ -111,7 +111,7 @@ test("removing a tailored item immediately restores the remaining fixed price", 
 
   const restored = calculatePlanningPrice(input(["NEW_TWO_STOREY_DWELLING"]));
   assert.equal(restored.quoteRequired, false);
-  assert.equal(restored.totalCents, 144_500);
+  assert.equal(restored.totalCents, 134_500);
 });
 
 test("incomplete external plans and significant source conflicts require a tailored engagement", () => {
@@ -131,16 +131,22 @@ test("incomplete external plans and significant source conflicts require a tailo
 test("basic uploads do not create charges while premium interpretation does", () => {
   const basic = calculatePlanningPrice(input(["POOL_SPA"]));
   const upgraded = calculatePlanningPrice(input(["POOL_SPA"], { documentAnalysisUpgrades: ["registered_survey", "flood_report"] }));
-  assert.equal(basic.totalCents, 104_500);
+  const reviewedUpgraded = calculatePlanningPrice(input(["POOL_SPA"], {
+    professionalVerificationRequested: true,
+    priorityRequested: true,
+    documentAnalysisUpgrades: ["registered_survey", "flood_report"],
+  }));
+  assert.equal(basic.totalCents, 94_500);
   assert.equal(upgraded.totalCents, 149_000);
+  assert.equal(reviewedUpgraded.totalCents, 309_000);
 });
 
 test("a browser-claimed total is ignored and the frozen snapshot is stable", async () => {
   const pricingInput = input(["NEW_TWO_STOREY_DWELLING"], { browserClaimedTotalCents: 1 });
   const result = calculatePlanningPrice(pricingInput);
-  assert.equal(result.totalCents, 144_500);
+  assert.equal(result.totalCents, 134_500);
   const snapshot = await freezePriceSnapshot(pricingInput, "gst_not_applicable");
-  assert.equal(snapshot.totalCents, 144_500);
-  assert.equal(snapshot.pricingVersion, "FRC_REPORT_PRICING_2026_01");
+  assert.equal(snapshot.totalCents, 134_500);
+  assert.equal(snapshot.pricingVersion, "FRC_REPORT_PRICING_2026_02");
   assert.equal(snapshot.inputHash.length, 64);
 });

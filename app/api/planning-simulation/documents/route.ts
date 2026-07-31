@@ -27,6 +27,43 @@ function safeDocument(document: DocumentRecord) {
   };
 }
 
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const orderId = url.searchParams.get("orderId")?.trim().slice(0, 80) ?? "";
+    const token = request.headers.get("X-FRC-Order-Token")?.trim().slice(0, 160) ?? "";
+    if (!orderId || !token) {
+      return Response.json(
+        { error: "Order authorisation is required." },
+        { status: 400 },
+      );
+    }
+    const repository = await getReportPlatformRepository();
+    const order = await repository.getOrder(orderId);
+    if (!order || !(await tokenMatches(token, order.ownerHash))) {
+      return Response.json(
+        { error: "Document access authorisation failed." },
+        { status: 403 },
+      );
+    }
+    const documents = await repository.listDocuments(orderId);
+    return Response.json(
+      { documents: documents.map(safeDocument) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return Response.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "The uploaded-document register could not be loaded.",
+      },
+      { status: 400 },
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const form = await request.formData();

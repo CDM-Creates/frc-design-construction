@@ -14,12 +14,17 @@
 92_Risk_Register.csv
 93_Action_Plan.pdf
 94_Report_Manifest.json
-95_Professional_Review_Record.pdf   (only when a reviewer record exists)
-96_Council_Readiness_Checklist.pdf  (only when a Council-Readiness report is selected)
+95_Professional_Review_Record.pdf   (only after review)
+96_Council_Readiness_Checklist.pdf  (only for Council Readiness)
+Client_Uploads/                     (explicit opt-in only)
 ```
 
-Each selected report gets a separate PDF on the shared evidence baseline. Only accepted or professionally approved visuals can be packed. In mock mode each accepted visualisation is rendered as a deterministic, labelled SVG (carrying its mandatory disclaimer and legend) so the concept-visualisation slot is never empty; a live image provider supplies raster bytes through `visualisationBytes`. `95_Professional_Review_Record.pdf` is written only after a registered professional's reviewer record exists, and `96_Council_Readiness_Checklist.pdf` only when a Council-Readiness report is in scope. The manifest records order/report IDs and names, template/pricing versions, generation date, review status, source/document/risk register versions, and every path, type, size and SHA-256 hash. It excludes credentials, tokens, private paths, payment data, prompts and internal notes.
+Each selected report receives a separate PDF based on its frozen template snapshot. Shared research does not cause every PDF to contain the same union of report-specific sections. The web report also offers a combined PDF and each individual report PDF.
 
-Raw uploads are excluded by default. The endpoint refuses upload inclusion until a separate ownership confirmation and private-storage read exist. When enabled, authorisation and a clean malware result are mandatory. Third-party references are never copied; only their URLs/citations are included. Rejected visuals and raw provider responses are excluded.
+Only accepted or professionally approved visuals can be packed. Mock mode renders deterministic labelled SVGs carrying the mandatory disclaimer and legend. A live provider must supply the actual authorised bytes; the pack builder will not silently substitute a mock image.
 
-PDF/ZIP endpoints validate the order or report token, require released status, return private no-store/no-sniff responses, sanitise paths, resolve duplicate names and audit downloads. Production should persist packs in R2 behind expiring signed links using `FRC_REPORT_PACK_EXPIRY_HOURS` (launch default 168 hours), with retention and large-archive streaming/load tests. The current small-pack renderer is in-memory and deliberately blocks raw-upload inclusion.
+The manifest records order/report IDs and names, frozen template/pricing versions, generation date, review status, source/document/risk register versions, and every generated content path, type, size and SHA-256 hash. It intentionally does not hash itself; the returned manifest is byte-for-byte the JSON archived as `94_Report_Manifest.json`. It excludes credentials, tokens, private paths, payment data, prompts and internal notes.
+
+Raw uploads are excluded by default. The secure report screen provides an unticked ownership-confirmation option. When selected, the endpoint re-authenticates the token, verifies recorded document-authority consent, reads authorised objects from private storage and includes only clean files. Quarantined, rejected, unavailable or unscanned files are excluded. Third-party references are never copied; only their source URLs/citations are included.
+
+PDF/ZIP endpoints require a released report, return private `no-store`/`nosniff` responses, sanitise paths, resolve duplicate names and audit downloads. `FRC_REPORT_PACK_EXPIRY_HOURS` defaults to 168 hours. The current renderer is in-memory and intended for bounded report packs; large-archive load/streaming tests remain a production requirement.

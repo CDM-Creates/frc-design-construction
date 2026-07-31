@@ -17,7 +17,8 @@
     "lint": "eslint . --ignore-pattern .next --ignore-pattern dist",
     "test": "node --test",
     "test:report-platform": "node --test tests/planning-pricing.test.mjs tests/report-platform.test.mjs tests/rendered-html.test.mjs",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:verify": "node --experimental-sqlite scripts/verify-migrations.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

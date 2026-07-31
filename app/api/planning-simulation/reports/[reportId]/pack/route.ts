@@ -1,6 +1,7 @@
 import { buildReportPack } from "../../../../../lib/report-platform/report-pack";
 import { getReportPlatformRepository } from "../../../../../lib/report-platform/repository";
 import { tokenMatches } from "../../../../../lib/report-platform/security";
+import { getPrivateStorageProvider } from "../../../../../lib/report-platform/storage";
 
 export async function GET(request: Request, context: { params: Promise<{ reportId: string }> }) {
   const { reportId } = await context.params;
@@ -22,8 +23,43 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
   const documents = await repository.listDocuments(order.id);
   const url = new URL(request.url);
   const includeClientUploads = url.searchParams.get("includeClientUploads") === "true";
+  const ownershipConfirmed = url.searchParams.get("confirmOwnership") === "true";
+  if (includeClientUploads && !ownershipConfirmed) {
+    return Response.json(
+      {
+        error:
+          "Confirm that you are authorised to download copies of the client uploads.",
+      },
+      { status: 409 },
+    );
+  }
+  if (
+    includeClientUploads &&
+    !order.consents.some((consent) => consent.code === "document_authority")
+  ) {
+    return Response.json(
+      { error: "The order does not contain the required document-authority consent." },
+      { status: 409 },
+    );
+  }
+  const cleanDocuments = documents.filter(
+    (document) => document.malwareScanStatus === "clean",
+  );
+  const authorisedClientUploadBytes: Record<string, Uint8Array> = {};
   if (includeClientUploads) {
-    return Response.json({ error: "Client-upload copies require a separate explicit ownership confirmation and storage read. They remain excluded by default." }, { status: 409 });
+    const storage = getPrivateStorageProvider();
+    for (const document of cleanDocuments) {
+      const object = await storage.get(document.storageReference);
+      if (!object) {
+        return Response.json(
+          {
+            error: `The authorised upload ${document.safeFilename} is not currently available in private storage.`,
+          },
+          { status: 409 },
+        );
+      }
+      authorisedClientUploadBytes[document.id] = object.bytes;
+    }
   }
   const selectedReportIds = order.scope.selectedReportIds ?? [];
   const pack = await buildReportPack({
@@ -33,7 +69,8 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
     report: report.structuredReport,
     documents,
     visualisations: report.structuredReport.visualisations ?? [],
-    includeClientUploads: false,
+    includeClientUploads,
+    authorisedClientUploadBytes,
     professionalReviewStatus: report.structuredReport.reportStatus,
     reviewerRecord: report.reviewerRecord ?? null,
   });
@@ -42,7 +79,14 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
     orderId: order.id,
     eventType: "report_pack_downloaded",
     actor: "client",
-    metadata: { reportId, fileCount: pack.manifest.files.length, byteSize: pack.bytes.byteLength },
+    metadata: {
+      reportId,
+      fileCount: pack.manifest.files.length,
+      byteSize: pack.bytes.byteLength,
+      includedAuthorisedClientUploads: includeClientUploads
+        ? cleanDocuments.length
+        : 0,
+    },
     createdAt: new Date().toISOString(),
   });
   return new Response(new Blob([new Uint8Array(pack.bytes)], { type: "application/zip" }), {

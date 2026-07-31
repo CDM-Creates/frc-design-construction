@@ -8,7 +8,12 @@ const transpile = (source) => ts.transpileModule(source, {
 }).outputText;
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 
-const catalogueSource = await readFile(new URL("../app/lib/report-platform/report-catalogue.ts", import.meta.url), "utf8");
+const documentCategoriesUrl = dataUrl(transpile(await readFile(
+  new URL("../app/lib/planning-simulation/document-categories.ts", import.meta.url),
+  "utf8",
+)));
+const catalogueSource = (await readFile(new URL("../app/lib/report-platform/report-catalogue.ts", import.meta.url), "utf8"))
+  .replace('from "../planning-simulation/document-categories";', `from "${documentCategoriesUrl}";`);
 const catalogueUrl = dataUrl(transpile(catalogueSource));
 const catalogue = await import(catalogueUrl);
 
@@ -41,6 +46,60 @@ test("customer category personalises recommendations but never changes price", (
   assert.notDeepEqual(
     catalogue.recommendationsFor("property_owner", "general_planning"),
     catalogue.recommendationsFor("investor_developer", "compare_options"),
+  );
+});
+
+test("document-analysis and professional-review selections change the catalogue price", () => {
+  const base = {
+    reportIds: ["property_intelligence"],
+    customerType: "property_owner",
+    site: { areaSqm: 900, areaStatus: "official_parcel_mapped", parcelCount: 1, ruralOrNonStandard: false },
+    professionalReviewRequested: false,
+    priorityReviewRequested: false,
+    documentAnalysisUpgrades: [],
+  };
+  const standard = catalogue.calculateCataloguePrice(base);
+  const planAnalysis = catalogue.calculateCataloguePrice({
+    ...base,
+    documentAnalysisUpgrades: ["architectural_plan_set"],
+  });
+  const reviewed = catalogue.calculateCataloguePrice({
+    ...base,
+    professionalReviewRequested: true,
+  });
+  const reviewedPriority = catalogue.calculateCataloguePrice({
+    ...base,
+    professionalReviewRequested: true,
+    priorityReviewRequested: true,
+  });
+  const reviewedWithAnalysis = catalogue.calculateCataloguePrice({
+    ...base,
+    professionalReviewRequested: true,
+    documentAnalysisUpgrades: ["architectural_plan_set"],
+  });
+  const includedPlanAnalysis = catalogue.calculateCataloguePrice({
+    ...base,
+    reportIds: ["plan_compliance_review"],
+    documentAnalysisUpgrades: ["architectural_plan_set"],
+  });
+  assert.equal(planAnalysis.totalCents - standard.totalCents, 59_500);
+  assert.ok(planAnalysis.lines.some((line) => line.code === "DOCUMENT_ANALYSIS_ARCHITECTURAL_PLAN_SET"));
+  assert.equal(reviewed.totalCents, 219_500);
+  assert.ok(reviewed.lines.some((line) => line.code === "PROFESSIONAL_REVIEW_MINIMUM"));
+  assert.equal(reviewedPriority.totalCents, 264_500);
+  assert.equal(reviewedWithAnalysis.totalCents, 279_000);
+  assert.equal(includedPlanAnalysis.totalCents, 129_500);
+  assert.deepEqual(
+    catalogue.documentAnalysisIncludedForReports([
+      "plan_compliance_review",
+    ]),
+    ["architectural_plan_set"],
+  );
+  assert.equal(
+    includedPlanAnalysis.lines.some((line) =>
+      line.code.startsWith("DOCUMENT_ANALYSIS_"),
+    ),
+    false,
   );
 });
 
@@ -93,8 +152,24 @@ const registry = await import(dataUrl(registrySource));
 test("every report template preserves all 25 common sections and development visuals", () => {
   assert.equal(registry.REPORT_TEMPLATE_REGISTRY.length, catalogue.REPORT_CATALOGUE.length);
   for (const template of registry.REPORT_TEMPLATE_REGISTRY) {
+    const sectionCodes = template.requiredSections.map((section) => section.code);
+    assert.equal(
+      new Set(sectionCodes).size,
+      sectionCodes.length,
+      `${template.id} contains duplicate required sections`,
+    );
     for (const [code] of registry.COMMON_REPORT_SECTIONS) {
       assert.ok(template.requiredSections.some((section) => section.code === code), `${template.id} missing ${code}`);
+    }
+    const reportId = catalogue.REPORT_CATALOGUE.find(
+      (entry) => entry.templateId === template.id,
+    )?.id;
+    assert.ok(reportId, `${template.id} is not connected to the catalogue`);
+    for (const [code] of registry.REPORT_SPECIFIC_SECTIONS[reportId]) {
+      assert.ok(
+        template.requiredSections.some((section) => section.code === code),
+        `${template.id} missing report-specific section ${code}`,
+      );
     }
   }
   for (const report of catalogue.REPORT_CATALOGUE.filter((entry) => entry.developmentSpecific)) {
@@ -154,15 +229,69 @@ test("web workflow includes accessible report information, target wording and un
   assert.match(wizard, /Reference material helps FRC understand your intended outcome/);
 });
 
+test("uploaded files are reconciled by server category before Continue", async () => {
+  const uploadState = await import(dataUrl(transpile(await readFile(
+    new URL("../app/lib/planning-simulation/document-upload-state.ts", import.meta.url),
+    "utf8",
+  ))));
+  const grouped = uploadState.groupUploadedDocuments(
+    [
+      { id: "doc-1", category: "site_photographs" },
+      { id: "doc-2", category: "architectural_plans" },
+    ],
+    new Set(["site_photographs", "architectural_plans"]),
+  );
+  assert.deepEqual(
+    uploadState.missingSelectedUploadCategories(
+      ["site_photographs", "architectural_plans"],
+      grouped,
+    ),
+    [],
+  );
+  const [wizard, documentsRoute] = await Promise.all([
+    readFile(new URL("../app/components/planning-simulation-wizard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/planning-simulation/documents/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(wizard, /reconcileUploadedDocuments/);
+  assert.match(documentsRoute, /export async function GET/);
+});
+
 test("report pack and email source enforce safe defaults and one-time delivery", async () => {
-  const [pack, notifications] = await Promise.all([
+  const [pack, packRoute, notifications] = await Promise.all([
     readFile(new URL("../app/lib/report-platform/report-pack.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/planning-simulation/reports/[reportId]/pack/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/report-platform/notification-provider.ts", import.meta.url), "utf8"),
   ]);
   assert.match(pack, /includeClientUploads/);
   assert.match(pack, /malwareScanStatus !== "clean"/);
   assert.match(pack, /\["accepted", "approved"\]/);
   assert.match(pack, /sha256/);
+  assert.match(pack, /templateSnapshots \?\? \[\]/);
+  assert.match(packRoute, /confirmOwnership/);
+  assert.match(packRoute, /getPrivateStorageProvider/);
+  assert.match(packRoute, /document_authority/);
   assert.match(notifications, /hasNotification/);
   assert.match(notifications, /Your FRC report pack is ready/);
+});
+
+test("official research, frozen templates and queued generation gate the workflow", async () => {
+  const [sourceRoute, orderRoute, generation, paymentRoute, statusClient] =
+    await Promise.all([
+      readFile(new URL("../app/api/site-analysis/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/planning-simulation/orders/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/lib/report-platform/report-generation.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/planning-simulation/mock-payment/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/report-status/[jobId]/report-status-client.tsx", import.meta.url), "utf8"),
+    ]);
+  assert.match(sourceRoute, /propertyResearchStatus: "complete"/);
+  assert.match(sourceRoute, /status: "lookup_failed"/);
+  assert.match(sourceRoute, /propertyResearchRetrievedAt/);
+  assert.match(orderRoute, /Complete the official NSW property source scan/);
+  assert.match(orderRoute, /ready_for_checkout", "awaiting_payment"/);
+  assert.match(generation, /templateSnapshots/);
+  assert.match(generation, /documentAnalysisIncludedForReports/);
+  assert.match(generation, /Official property research must complete/);
+  assert.match(paymentRoute, /createQueuedMockReportJob/);
+  assert.match(paymentRoute, /after\(async/);
+  assert.match(statusClient, /setInterval/);
 });

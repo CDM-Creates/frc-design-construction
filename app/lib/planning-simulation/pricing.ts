@@ -8,7 +8,7 @@ import type {
   TaxTreatment,
 } from "./types";
 
-export const PRICING_VERSION = "FRC_REPORT_PRICING_2026_01";
+export const PRICING_VERSION = "FRC_REPORT_PRICING_2026_02";
 
 type DevelopmentPriceRule = {
   amountCents: number;
@@ -70,7 +70,7 @@ export const DEVELOPMENT_ITEM_PRICE_RULES: Record<string, DevelopmentPriceRule> 
 
 export const PRICING_RULES = {
   currency: "AUD",
-  coreReportCents: 79_500,
+  coreReportCents: 69_500,
   coordinationCents: 35_000,
   largeSitePotentialCents: 49_500,
   architecturalPlanSetCents: 59_500,
@@ -79,10 +79,10 @@ export const PRICING_RULES = {
   specialistReportCents: 25_000,
   detailedAlternativesCents: 49_500,
   professionalVerificationCents: 89_500,
-  professionalMinimumCents: 249_500,
+  professionalMinimumCents: 219_500,
   priorityProfessionalReviewCents: 45_000,
   councilReadinessCents: 149_500,
-  councilReadinessMinimumCents: 400_000,
+  councilReadinessMinimumCents: 350_000,
   tailoredEngagementFromCents: 350_000,
   maximumMajorAutomaticAssessments: 3,
   version: PRICING_VERSION,
@@ -271,9 +271,16 @@ export function calculatePlanningPrice(
 
   const quoteRequired = quoteReasons.length > 0;
   let subtotalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+  const minimumEligibleSubtotalCents = lineItems
+    .filter(
+      (item) =>
+        item.code !== "PRIORITY_PROFESSIONAL_REVIEW" &&
+        !item.code.startsWith("DOCUMENT_"),
+    )
+    .reduce((sum, item) => sum + item.amountCents, 0);
 
-  if (!quoteRequired && input.councilSubmissionRequested && subtotalCents < PRICING_RULES.councilReadinessMinimumCents) {
-    const adjustment = PRICING_RULES.councilReadinessMinimumCents - subtotalCents;
+  if (!quoteRequired && input.councilSubmissionRequested && minimumEligibleSubtotalCents < PRICING_RULES.councilReadinessMinimumCents) {
+    const adjustment = PRICING_RULES.councilReadinessMinimumCents - minimumEligibleSubtotalCents;
     lineItems.push(line({
       code: "COUNCIL_READINESS_MINIMUM_ADJUSTMENT",
       publicLabel: "Council-readiness minimum engagement adjustment",
@@ -281,12 +288,12 @@ export function calculatePlanningPrice(
       amountCents: adjustment,
       associatedDevelopmentItem: null,
       associatedDocumentCategory: null,
-      reason: "Council-readiness engagements have a A$4,000 minimum",
+      reason: "Council-readiness engagements have an A$3,500 launch minimum",
       treatment: "minimum_adjustment",
     }, taxTreatment));
     subtotalCents += adjustment;
-  } else if (!quoteRequired && input.professionalVerificationRequested && subtotalCents < PRICING_RULES.professionalMinimumCents) {
-    const adjustment = PRICING_RULES.professionalMinimumCents - subtotalCents;
+  } else if (!quoteRequired && input.professionalVerificationRequested && minimumEligibleSubtotalCents < PRICING_RULES.professionalMinimumCents) {
+    const adjustment = PRICING_RULES.professionalMinimumCents - minimumEligibleSubtotalCents;
     lineItems.push(line({
       code: "PROFESSIONAL_REVIEW_MINIMUM_ADJUSTMENT",
       publicLabel: "Professional review minimum engagement adjustment",
@@ -294,7 +301,7 @@ export function calculatePlanningPrice(
       amountCents: adjustment,
       associatedDevelopmentItem: null,
       associatedDocumentCategory: null,
-      reason: "Professionally reviewed engagements have a A$2,495 minimum",
+      reason: "Professionally reviewed engagements have an A$2,195 launch minimum",
       treatment: "minimum_adjustment",
     }, taxTreatment));
     subtotalCents += adjustment;

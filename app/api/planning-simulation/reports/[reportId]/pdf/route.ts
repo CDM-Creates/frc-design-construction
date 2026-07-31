@@ -1,5 +1,9 @@
 import { getReportPlatformRepository } from "../../../../../lib/report-platform/repository";
-import { renderStructuredReportPdf } from "../../../../../lib/report-platform/report-pack";
+import {
+  renderStructuredReportPdf,
+  selectReportView,
+} from "../../../../../lib/report-platform/report-pack";
+import { REPORT_BY_ID } from "../../../../../lib/report-platform/report-catalogue";
 import { tokenMatches } from "../../../../../lib/report-platform/security";
 
 export async function GET(request: Request, context: { params: Promise<{ reportId: string }> }) {
@@ -13,11 +17,31 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
     return Response.json({ error: "Report access denied." }, { status: 403 });
   }
   if (report.status !== "released") return Response.json({ error: "This report is not approved for download." }, { status: 409 });
-  const bytes = await renderStructuredReportPdf(report.structuredReport);
+  const selectedReportId = new URL(request.url).searchParams.get(
+    "selectedReportId",
+  );
+  const selectedReportIds = order.scope.selectedReportIds ?? [];
+  if (
+    selectedReportId &&
+    (!selectedReportIds.includes(selectedReportId) ||
+      !REPORT_BY_ID.has(selectedReportId))
+  ) {
+    return Response.json(
+      { error: "The requested report was not part of this order." },
+      { status: 404 },
+    );
+  }
+  const selectedReport = selectedReportId
+    ? selectReportView(report.structuredReport, selectedReportId)
+    : report.structuredReport;
+  const bytes = await renderStructuredReportPdf(selectedReport);
+  const filenameCode = (selectedReportId ?? report.id.slice(0, 8))
+    .replace(/[^a-z0-9_-]+/gi, "_")
+    .slice(0, 80);
   return new Response(bytes, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="FRC_${report.id.slice(0, 8)}_Report.pdf"`,
+      "Content-Disposition": `attachment; filename="FRC_${filenameCode}_Report.pdf"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
     },

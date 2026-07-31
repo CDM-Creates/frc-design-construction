@@ -11,7 +11,10 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     if (!order || !(await tokenMatches(accessToken, order.ownerHash))) {
       return Response.json({ error: "Order authorisation failed." }, { status: 403 });
     }
-    if (order.status !== "ready_for_checkout" || !order.priceSnapshot?.totalCents) {
+    if (
+      !["ready_for_checkout", "awaiting_payment"].includes(order.status) ||
+      !order.priceSnapshot?.totalCents
+    ) {
       throw new Error(order.tailoredQuote ? "Tailored engagements do not use automatic checkout." : "The order is not ready for checkout.");
     }
     const provider = getPaymentProvider();
@@ -26,7 +29,24 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     order.paymentStatus = "awaiting";
     order.updatedAt = new Date().toISOString();
     await repository.saveOrder(order);
-    await repository.transitionOrder(orderId, "awaiting_payment", "system", { provider: provider.name, sessionId: session.sessionId });
+    if (order.status === "ready_for_checkout") {
+      await repository.transitionOrder(orderId, "awaiting_payment", "system", {
+        provider: provider.name,
+        sessionId: session.sessionId,
+      });
+    } else {
+      await repository.addOrderEvent({
+        id: crypto.randomUUID(),
+        orderId,
+        eventType: "checkout_session_reissued",
+        actor: "system",
+        metadata: {
+          provider: provider.name,
+          sessionId: session.sessionId,
+        },
+        createdAt: new Date().toISOString(),
+      });
+    }
     return Response.json({ session }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Checkout could not be created." }, { status: 400 });

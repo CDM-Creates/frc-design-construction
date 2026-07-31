@@ -1,5 +1,9 @@
 import { DEVELOPMENT_ITEM_BY_CODE } from "../../../lib/planning-simulation/development-items";
-import { COUNCIL_READINESS_REQUIRED_DOCUMENTS, DOCUMENT_CATEGORY_BY_CODE } from "../../../lib/planning-simulation/document-categories";
+import {
+  COUNCIL_READINESS_REQUIRED_DOCUMENTS,
+  DOCUMENT_ANALYSIS_UPGRADE_BY_CODE,
+  DOCUMENT_CATEGORY_BY_CODE,
+} from "../../../lib/planning-simulation/document-categories";
 import { freezePriceSnapshot } from "../../../lib/planning-simulation/pricing";
 import type {
   DocumentAnalysisUpgradeCode,
@@ -12,7 +16,9 @@ import { getBusinessConfiguration, getPlatformMode } from "../../../lib/report-p
 import {
   CUSTOMER_TYPES,
   DECISION_OBJECTIVES,
+  documentAnalysisIncludedForReports,
   freezeCataloguePrice,
+  isDocumentAnalysisIncluded,
   REPORT_BY_ID,
   type CustomerTypeId,
   type DecisionObjectiveId,
@@ -32,6 +38,24 @@ const customerTypeIds = new Set(CUSTOMER_TYPES.map((customer) => customer.id));
 const decisionObjectiveIds = new Set(DECISION_OBJECTIVES.map((objective) => objective.id));
 
 const clean = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
+
+function normaliseBoundaryStatus(value: unknown) {
+  const status = clean(value, 80);
+  if (status === "mapped") return "official_parcel_mapped";
+  if (status === "requires_verification") return "conflict_detected";
+  if ([
+    "survey_confirmed",
+    "deposited_plan_supported",
+    "official_parcel_mapped",
+    "client_supplied",
+    "approximate_only",
+    "unavailable",
+    "conflict_detected",
+  ].includes(status)) {
+    return status;
+  }
+  return "unavailable";
+}
 
 function parseSelectedItems(value: unknown, allowEmpty: boolean): SelectedDevelopmentItem[] {
   if (!Array.isArray(value)) {
@@ -61,6 +85,25 @@ function parseReportIds(value: unknown) {
   const ids = [...new Set(value.filter((id): id is string => typeof id === "string").map((id) => id.slice(0, 80)))];
   if (ids.length > 15 || ids.some((id) => !REPORT_BY_ID.has(id))) throw new Error("A selected report is invalid.");
   return ids;
+}
+
+function parseDocumentAnalysisUpgrades(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  if (
+    value.some(
+      (code) =>
+        typeof code !== "string" ||
+        !documentUpgradeCodes.has(code as DocumentAnalysisUpgradeCode),
+    )
+  ) {
+    throw new Error("A selected document-analysis upgrade is invalid.");
+  }
+  const upgrades = [
+    ...new Set(
+      value as DocumentAnalysisUpgradeCode[],
+    ),
+  ];
+  return upgrades;
 }
 
 function parsePricingInput(value: unknown, selectedItems: SelectedDevelopmentItem[]): PlanningPricingInput {
@@ -105,7 +148,7 @@ function parseReferences(value: unknown) {
     return {
       reportId: clean(raw.reportId, 80),
       url: clean(raw.url, 2_000) || null,
-      storageReference: clean(raw.storageReference, 500) || null,
+      storageReference: null,
       title: clean(raw.title, 300) || null,
       supplierOrDesigner: clean(raw.supplierOrDesigner, 300) || null,
       modelName: clean(raw.modelName, 200) || null,
@@ -129,19 +172,123 @@ export async function POST(request: Request) {
     const repository = await getReportPlatformRepository();
     const order = await repository.getOrder(orderId);
     if (!order || !(await tokenMatches(accessToken, order.ownerHash))) return Response.json({ error: "Order authorisation failed." }, { status: 403 });
+    if (
+      ["ready_for_checkout", "awaiting_payment"].includes(order.status) &&
+      order.priceSnapshot
+    ) {
+      const { ownerHash: _ownerHash, ...safeOrder } = order;
+      void _ownerHash;
+      return Response.json(
+        {
+          order: safeOrder,
+          priceSnapshot: order.priceSnapshot,
+          checkoutAvailable: !order.priceSnapshot.quoteRequired,
+          idempotentReplay: true,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (!["draft", "awaiting_uploads"].includes(order.status)) throw new Error("This order has already been confirmed.");
 
     const selectedReportIds = parseReportIds(body.selectedReportIds);
     const usingCatalogue = selectedReportIds.length > 0;
+    const selectedBaseReports = selectedReportIds.filter(
+      (id) => !["professional_review", "council_readiness"].includes(id),
+    );
+    if (
+      selectedReportIds.includes("professional_review") &&
+      selectedBaseReports.length === 0
+    ) {
+      return Response.json(
+        { error: "Professional review requires at least one substantive base report." },
+        { status: 409 },
+      );
+    }
+    if (
+      selectedReportIds.includes("council_readiness") &&
+      !selectedBaseReports.some(
+        (id) =>
+          REPORT_BY_ID.get(id)?.developmentSpecific &&
+          id !== "complex_development",
+      )
+    ) {
+      return Response.json(
+        {
+          error:
+            "Council-readiness requires an applicable development feasibility or plan-compliance report.",
+        },
+        { status: 409 },
+      );
+    }
+    if (
+      usingCatalogue &&
+      order.property.propertyResearchStatus !== "complete"
+    ) {
+      return Response.json(
+        {
+          error:
+            "Complete the official NSW property source scan before confirming a report order.",
+        },
+        { status: 409 },
+      );
+    }
     const selectedItems = parseSelectedItems(body.selectedItems, usingCatalogue);
     const pricingInput = usingCatalogue ? null : parsePricingInput(body.pricingInput, selectedItems);
+    const nestedPricingInput =
+      body.pricingInput &&
+      typeof body.pricingInput === "object" &&
+      !Array.isArray(body.pricingInput)
+        ? (body.pricingInput as Record<string, unknown>)
+        : {};
+    const requestedDocumentAnalysisUpgrades = usingCatalogue
+      ? parseDocumentAnalysisUpgrades(
+          body.documentAnalysisUpgrades ??
+            nestedPricingInput.documentAnalysisUpgrades,
+        )
+      : pricingInput!.documentAnalysisUpgrades;
+    const chargeableDocumentAnalysisUpgrades = usingCatalogue
+      ? requestedDocumentAnalysisUpgrades.filter(
+          (code) => !isDocumentAnalysisIncluded(selectedReportIds, code),
+        )
+      : requestedDocumentAnalysisUpgrades;
+    const effectiveDocumentAnalysisUpgrades = usingCatalogue
+      ? [
+          ...new Set([
+            ...chargeableDocumentAnalysisUpgrades,
+            ...documentAnalysisIncludedForReports(selectedReportIds),
+          ]),
+        ]
+      : chargeableDocumentAnalysisUpgrades;
     const availableDocumentCategories = Array.isArray(body.availableDocumentCategories)
       ? [...new Set(body.availableDocumentCategories.filter((code): code is DocumentCategoryCode => typeof code === "string" && DOCUMENT_CATEGORY_BY_CODE.has(code as DocumentCategoryCode)))]
       : [];
     const documents = await repository.listDocuments(orderId);
     const uploadedCategories = new Set(documents.map((document) => document.category));
+    const uploadedReferenceDocuments = documents.filter(
+      (document) => document.category === "reference_material",
+    );
     const awaiting = availableDocumentCategories.filter((category) => !uploadedCategories.has(category));
     if (awaiting.length) return Response.json({ error: "You marked this document as available. Upload at least one file or untick the document.", awaitingCategories: awaiting }, { status: 409 });
+    for (const code of chargeableDocumentAnalysisUpgrades) {
+      const upgrade = DOCUMENT_ANALYSIS_UPGRADE_BY_CODE.get(code);
+      const hasEligibleUpload = upgrade?.eligibleDocumentCategories.some(
+        (category) =>
+          availableDocumentCategories.includes(category) &&
+          documents.some(
+            (document) =>
+              document.category === category &&
+              document.automatedInterpretationEligible,
+          ),
+      );
+      if (!upgrade || !hasEligibleUpload) {
+        return Response.json(
+          {
+            error: `${upgrade?.label ?? "The selected document analysis"} requires at least one PDF or supported image upload in its matching document category. DWG and DXF remain manual-review only.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const references = parseReferences(body.referenceMaterials);
     if (usingCatalogue) {
@@ -149,11 +296,14 @@ export async function POST(request: Request) {
         const report = REPORT_BY_ID.get(reportId)!;
         if (report.referencesRequired) {
           const supplied = references.filter((reference) => reference.reportId === reportId);
-          if (!supplied.length || supplied.every((reference) => !validateReferenceRequirement({
-            ...reference,
-            reportSelectionId: reportId,
-            propertyId: orderId,
-          } as ReferenceMaterialInput).valid)) {
+          if (
+            uploadedReferenceDocuments.length === 0 &&
+            (!supplied.length || supplied.every((reference) => !validateReferenceRequirement({
+              ...reference,
+              reportSelectionId: reportId,
+              propertyId: orderId,
+            } as ReferenceMaterialInput).valid))
+          ) {
             return Response.json({ error: `${report.name} requires a reference URL, uploaded visual reference or written development brief.` }, { status: 409 });
           }
         }
@@ -199,7 +349,36 @@ export async function POST(request: Request) {
     const business = getBusinessConfiguration();
     if (getPlatformMode() === "production" && business.taxTreatment === "unconfigured_test_only") throw new Error("GST configuration must be confirmed before production checkout.");
 
-    const property = body.property && typeof body.property === "object" && !Array.isArray(body.property) ? body.property as Record<string, unknown> : {};
+    const submittedProperty =
+      body.property &&
+      typeof body.property === "object" &&
+      !Array.isArray(body.property)
+        ? (body.property as Record<string, unknown>)
+        : {};
+    const trustedProperty =
+      order.property.propertyResearchStatus === "complete"
+        ? order.property
+        : {};
+    const property: Record<string, unknown> = {
+      ...submittedProperty,
+      ...trustedProperty,
+      clientSuppliedAddress:
+        trustedProperty.clientSuppliedAddress ??
+        clean(submittedProperty.clientSuppliedAddress, 500),
+      clientSuppliedAreaSqm:
+        typeof submittedProperty.clientSuppliedAreaSqm === "number"
+          ? submittedProperty.clientSuppliedAreaSqm
+          : trustedProperty.clientSuppliedAreaSqm,
+      parcelCount: Number.isInteger(Number(submittedProperty.parcelCount))
+        ? Number(submittedProperty.parcelCount)
+        : Number(trustedProperty.parcelCount ?? 1),
+      ruralOrNonStandard: submittedProperty.ruralOrNonStandard === true,
+      boundaryStatus: normaliseBoundaryStatus(
+        trustedProperty.boundaryStatus ??
+          trustedProperty.sourceAreaStatus ??
+          submittedProperty.boundaryStatus,
+      ),
+    };
     const priceSnapshot = usingCatalogue
       ? await freezeCataloguePrice({
           reportIds: selectedReportIds,
@@ -212,6 +391,7 @@ export async function POST(request: Request) {
           },
           professionalReviewRequested,
           priorityReviewRequested: priorityRequested,
+          documentAnalysisUpgrades: chargeableDocumentAnalysisUpgrades,
         }, business.taxTreatment)
       : await freezePriceSnapshot(pricingInput!, business.taxTreatment);
 
@@ -226,6 +406,33 @@ export async function POST(request: Request) {
         extractedMetadata: metadata.extractedPublicMetadata,
       };
     }));
+    const uploadedReferenceRecords = selectedReportIds
+      .filter((reportId) => REPORT_BY_ID.get(reportId)?.referencesRequired)
+      .flatMap((reportId) =>
+        uploadedReferenceDocuments.map((document) => ({
+          reportId,
+          url: null,
+          storageReference: document.storageReference,
+          documentId: document.id,
+          title: document.originalFilename,
+          supplierOrDesigner: document.author,
+          modelName: null,
+          whatClientLikes: document.clientNote,
+          exactModelIntended: false,
+          approximateFloorAreaSqm: null,
+          bedroomCount: null,
+          storeyCount: null,
+          preferredFeatures: [],
+          clientNotes: document.clientNote,
+          writtenBrief: null,
+          accessStatus: "owned_client_upload",
+          accessedAt: document.uploadedAt,
+          extractedMetadata: {
+            mimeType: document.mimeType,
+            byteSize: document.byteSize,
+          },
+        })),
+      );
     const motivation = body.projectMotivation && typeof body.projectMotivation === "object" && !Array.isArray(body.projectMotivation)
       ? body.projectMotivation as Record<string, unknown>
       : {};
@@ -237,9 +444,10 @@ export async function POST(request: Request) {
       selectedReportIds: usingCatalogue ? selectedReportIds : undefined,
       availableDocumentCategories,
       pricingInput,
+      documentAnalysisUpgrades: effectiveDocumentAnalysisUpgrades,
       notes: clean(body.notes, 5_000),
       projectMotivation: motivation,
-      referenceMaterials: processedReferences,
+      referenceMaterials: [...processedReferences, ...uploadedReferenceRecords],
     };
     order.priceSnapshot = priceSnapshot;
     order.pricingVersion = priceSnapshot.pricingVersion;

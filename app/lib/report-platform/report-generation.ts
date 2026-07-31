@@ -1,13 +1,25 @@
-import { DOCUMENT_CATEGORIES } from "../planning-simulation/document-categories";
+import {
+  DOCUMENT_ANALYSIS_UPGRADE_BY_CODE,
+  DOCUMENT_CATEGORIES,
+} from "../planning-simulation/document-categories";
 import { buildPlanningReportTemplate } from "../planning-simulation/report-templates";
 import type { DocumentCategoryCode } from "../planning-simulation/types";
 import { getMalwareScanner } from "./malware";
 import { sendClientReportReadyNotification, sendInternalOrderNotification } from "./notification-provider";
-import { getReportAiProvider, type FrcReportGenerationInputV1 } from "./report-ai-provider";
+import { getReportAiProvider, type FrcReportGenerationInputV2 } from "./report-ai-provider";
 import { getReportPlatformRepository } from "./repository";
-import { REPORT_BY_ID, reportIdsForDevelopmentItems } from "./report-catalogue";
-import { REPORT_TEMPLATE_BY_ID, validateStructuredReportV2 } from "./report-template-registry";
+import {
+  documentAnalysisIncludedForReports,
+  REPORT_BY_ID,
+  reportIdsForDevelopmentItems,
+} from "./report-catalogue";
+import {
+  REPORT_SCHEMA_VERSION,
+  REPORT_TEMPLATE_BY_ID,
+  validateStructuredReportV2,
+} from "./report-template-registry";
 import { generateValidatedMockVisualisations } from "./architectural-visualisations";
+import { REPORT_PROMPT_VERSION } from "./report-prompts";
 import { createAccessToken, hashAccessToken } from "./security";
 import type { FinalReportRecord, ReportJob, ReportOrder } from "./types";
 
@@ -29,11 +41,151 @@ function baselineMissingDocuments(uploaded: Set<DocumentCategoryCode>) {
     .map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
 }
 
-export async function runMockReportGeneration(orderId: string) {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buildOfficialPropertyResearch(order: ReportOrder, fallbackDate: string) {
+  if (order.property.propertyResearchStatus !== "complete") {
+    return { facts: [], sources: [] };
+  }
+  const retrievedAt =
+    typeof order.property.propertyResearchRetrievedAt === "string"
+      ? order.property.propertyResearchRetrievedAt
+      : fallbackDate;
+  const planningFields = asRecord(order.property.planningFields);
+  const sourceMetadata = asRecord(order.property.source);
+  const controlProvenance = asRecord(
+    asRecord(order.property.controls).provenance,
+  );
+  const facts: Array<Record<string, unknown>> = [
+    {
+      sourceId: "NSW-PROPERTY-DATA",
+      field: "property_identity",
+      value: {
+        address:
+          order.property.officialAddress ??
+          order.property.clientSuppliedAddress,
+        lotDp: order.property.lotDp ?? null,
+        council: order.property.council ?? null,
+        mappedAreaSqm: order.property.mappedAreaSqm ?? null,
+        boundaryStatus:
+          order.property.boundaryStatus ?? "official_parcel_mapped",
+      },
+      status: "mapped",
+      sourceName: "NSW official property-data workflow",
+      retrievedAt,
+    },
+  ];
+  const sources: Array<Record<string, unknown>> = [
+    {
+      id: "NSW-PROPERTY-DATA",
+      name: "NSW official property-data workflow",
+      status: "official_verified",
+      retrievedAt,
+      provider: order.property.propertyResearchProvider,
+      attribution: sourceMetadata.dataAttribution,
+      sourceUrl:
+        sourceMetadata.planningPortal ??
+        sourceMetadata.cadastralLotLayer ??
+        null,
+    },
+  ];
+
+  for (const [field, rawValue] of Object.entries(planningFields)) {
+    const propertyField = asRecord(rawValue);
+    const sourceId = `NSW-PROPERTY-${field
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toUpperCase()}`;
+    facts.push({
+      sourceId,
+      field,
+      value: propertyField.value ?? null,
+      status: propertyField.status ?? "unavailable",
+      sourceName:
+        propertyField.sourceName ?? "NSW official property-data workflow",
+      sourceLayer: propertyField.sourceLayer ?? null,
+      sourceFeatureId: propertyField.sourceFeatureId ?? null,
+      sourceUrl:
+        controlProvenance[field] ??
+        (field === "lotDp" || field === "parcelArea"
+          ? sourceMetadata.cadastralLotLayer
+          : null),
+      retrievedAt: propertyField.retrievedAt ?? retrievedAt,
+    });
+    sources.push({
+      id: sourceId,
+      name:
+        propertyField.sourceName ?? "NSW official property-data workflow",
+      layer: propertyField.sourceLayer ?? null,
+      featureId: propertyField.sourceFeatureId ?? null,
+      sourceUrl:
+        controlProvenance[field] ??
+        (field === "lotDp" || field === "parcelArea"
+          ? sourceMetadata.cadastralLotLayer
+          : null),
+      status:
+        propertyField.status === "mapped"
+          ? "official_verified"
+          : propertyField.status === "conflict_detected"
+            ? "conflict_detected"
+            : "unavailable",
+      retrievedAt: propertyField.retrievedAt ?? retrievedAt,
+    });
+  }
+  return { facts, sources };
+}
+
+export async function createQueuedMockReportJob(orderId: string) {
+  const repository = await getReportPlatformRepository();
+  const existingJobs = await repository.listReportJobs(orderId);
+  const existing = existingJobs.find((job) =>
+    !["completed", "failed", "cancelled"].includes(job.status),
+  );
+  if (existing) return existing;
+  const order = await repository.getOrder(orderId);
+  if (!order || order.paymentStatus !== "paid") {
+    throw new Error("A paid order is required before report generation can be queued.");
+  }
+  const now = new Date().toISOString();
+  const job: ReportJob = {
+    id: crypto.randomUUID(),
+    orderId,
+    status: "queued",
+    progressStage: "payment_verified",
+    aiProvider: "mock-report-ai",
+    templateId: "pending_template_resolution",
+    promptVersion: REPORT_PROMPT_VERSION,
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    generationAttempt: 1,
+    failureReason: null,
+    reviewRequired: order.professionalReviewRequired,
+    createdAt: now,
+    startedAt: null,
+    completedAt: null,
+  };
+  await repository.createReportJob(job);
+  return job;
+}
+
+export async function runMockReportGeneration(
+  orderId: string,
+  queuedJobId?: string,
+) {
   const repository = await getReportPlatformRepository();
   let order = await repository.getOrder(orderId);
   if (!order || !order.priceSnapshot) throw new Error("A paid order with a frozen price is required.");
   if (order.paymentStatus !== "paid") throw new Error("Report generation cannot start until payment is verified.");
+  if (
+    order.scope.selectedReportIds?.length &&
+    order.property.propertyResearchStatus !== "complete"
+  ) {
+    throw new Error(
+      "Official property research must complete before report generation.",
+    );
+  }
   const frozenPriceSnapshot = order.priceSnapshot;
 
   const legacyTemplate = buildPlanningReportTemplate({
@@ -46,24 +198,50 @@ export async function runMockReportGeneration(orderId: string) {
     : reportIdsForDevelopmentItems(order.scope.selectedItems.map((item) => item.code));
   const selectedCatalogueReports = selectedReportIds.map((id) => REPORT_BY_ID.get(id)).filter((entry) => entry !== undefined);
   const registeredTemplates = selectedCatalogueReports.map((entry) => REPORT_TEMPLATE_BY_ID.get(entry.templateId)).filter((entry) => entry !== undefined);
+  const templateSnapshots = selectedCatalogueReports.flatMap((entry) => {
+    const registeredTemplate = REPORT_TEMPLATE_BY_ID.get(entry.templateId);
+    return registeredTemplate
+      ? [{
+          reportId: entry.id,
+          reportName: entry.name,
+          templateId: registeredTemplate.id,
+          templateVersion: registeredTemplate.version,
+          requiredSectionCodes: registeredTemplate.requiredSections.map(
+            (section) => section.code,
+          ),
+          conditionalSectionCodes: registeredTemplate.conditionalSections.map(
+            (section) => section.code,
+          ),
+        }]
+      : [];
+  });
   const registrySections = [...new Map(registeredTemplates.flatMap((template) => template.requiredSections).map((section) => [section.code, section])).values()];
   if (typeof order.property.mappedAreaSqm === "number" && order.property.mappedAreaSqm > 1_000 && order.property.mappedAreaSqm <= 10_000) {
     registrySections.push({ code: "large_site_analysis", title: "Large-site analysis" });
+  }
+  if (order.scope.documentAnalysisUpgrades?.length) {
+    registrySections.push({
+      code: "document_analysis_schedule",
+      title: "Purchased technical document-analysis schedule",
+    });
   }
   const template = registeredTemplates.length ? {
     templateId: registeredTemplates.map((entry) => entry.id).join("+"),
     sections: registrySections.map((section) => ({ key: section.code, heading: section.title })),
   } : legacyTemplate;
   const now = new Date().toISOString();
-  const job: ReportJob = {
+  const queuedJob = queuedJobId
+    ? await repository.getReportJob(queuedJobId)
+    : null;
+  const job: ReportJob = queuedJob ?? {
     id: crypto.randomUUID(),
     orderId,
     status: "queued",
     progressStage: "order_confirmed",
     aiProvider: "mock-report-ai",
     templateId: template.templateId,
-    promptVersion: "FRC_REPORT_PROMPT_2026_01",
-    schemaVersion: "FRC_REPORT_SCHEMA_V1",
+    promptVersion: REPORT_PROMPT_VERSION,
+    schemaVersion: REPORT_SCHEMA_VERSION,
     generationAttempt: 1,
     failureReason: null,
     reviewRequired: order.professionalReviewRequired,
@@ -71,19 +249,47 @@ export async function runMockReportGeneration(orderId: string) {
     startedAt: now,
     completedAt: null,
   };
-  await repository.createReportJob(job);
+  if (job.orderId !== orderId) {
+    throw new Error("The queued report job does not belong to this order.");
+  }
+  job.templateId = template.templateId;
+  job.promptVersion = REPORT_PROMPT_VERSION;
+  job.schemaVersion = REPORT_SCHEMA_VERSION;
+  job.startedAt = job.startedAt ?? now;
+  if (queuedJob) await repository.saveReportJob(job);
+  else await repository.createReportJob(job);
 
   try {
-    order = await repository.transitionOrder(orderId, "queued", "system", { jobId: job.id });
+    if (order.status === "paid") {
+      order = await repository.transitionOrder(orderId, "queued", "system", { jobId: job.id });
+    } else if (order.status !== "queued") {
+      throw new Error(
+        `Report generation cannot start from order status ${order.status}.`,
+      );
+    }
     job.status = "securing_files";
     job.progressStage = "files_secured";
     await repository.saveReportJob(job);
     order = await repository.transitionOrder(orderId, "securing_files", "system");
-    const documents = await repository.listDocuments(orderId);
+    const selectedDocumentCategories = new Set(
+      order.scope.availableDocumentCategories,
+    );
+    const documents = (await repository.listDocuments(orderId)).filter(
+      (document) =>
+        selectedDocumentCategories.size === 0 ||
+        selectedDocumentCategories.has(document.category),
+    );
     const scanner = getMalwareScanner();
     for (const document of documents) {
       const scan = await scanner.scan({ storageReference: document.storageReference, sha256: document.sha256, mimeType: document.mimeType });
-      document.malwareScanStatus = scan.status === "clean" ? "clean" : "unavailable";
+      document.malwareScanStatus = scan.status;
+      if (scan.status === "rejected") {
+        document.status = "failed";
+        await repository.saveDocument(document);
+        throw new Error(
+          `${document.safeFilename} failed malware screening and was quarantined.`,
+        );
+      }
       document.status = "processing";
       await repository.saveDocument(document);
     }
@@ -92,21 +298,62 @@ export async function runMockReportGeneration(orderId: string) {
     job.status = "analysing_property";
     job.progressStage = "property_sources_checked";
     await repository.saveReportJob(job);
+    const officialResearch = buildOfficialPropertyResearch(order, now);
 
     order = await repository.transitionOrder(orderId, "analysing_documents", "system");
     job.status = "analysing_documents";
     job.progressStage = "documents_analysed";
     await repository.saveReportJob(job);
+    const selectedDocumentAnalysisUpgrades = [
+      ...new Set([
+        ...(order.scope.documentAnalysisUpgrades ?? []),
+        ...documentAnalysisIncludedForReports(selectedReportIds),
+      ]),
+    ];
     for (const document of documents) {
+      const purchasedAnalysis = selectedDocumentAnalysisUpgrades.find(
+        (code) =>
+          DOCUMENT_ANALYSIS_UPGRADE_BY_CODE.get(
+            code,
+          )?.eligibleDocumentCategories.includes(document.category),
+      );
+      const analysisDefinition = purchasedAnalysis
+        ? DOCUMENT_ANALYSIS_UPGRADE_BY_CODE.get(purchasedAnalysis)
+        : undefined;
       document.extractionProvider = "mock-report-ai";
       document.extractionModel = "deterministic-fixture";
       document.extractionSchemaVersion = "FRC_DOCUMENT_EXTRACTION_V1";
-      document.extractedFacts = [{
-        statementType: "missing_information",
-        text: "Mock mode records the supplied document without asserting extracted planning facts.",
-        sourceDocumentId: document.id,
-        verificationState: "requires_professional_review",
-      }];
+      document.extractedFacts =
+        purchasedAnalysis &&
+        analysisDefinition &&
+        document.automatedInterpretationEligible
+          ? [{
+              statementType: "extracted_document_fact",
+              text: `${analysisDefinition.label} was included in the frozen order scope for ${document.safeFilename}. Mock mode records the technical-analysis contract and evidence source without inventing drawing, survey or consultant findings.`,
+              sourceId: document.id,
+              sourceDocumentId: document.id,
+              sourceType: "client_uploaded_document",
+              sourceStatus: "client_supplied",
+              issueOrRetrievalDate:
+                document.issueDate ?? document.uploadedAt,
+              verificationState: "mock_analysis_scope_recorded",
+              professionalReviewRequired:
+                order.professionalReviewRequired,
+              analysisUpgradeCode: purchasedAnalysis,
+              analysisLabel: analysisDefinition.label,
+            }]
+          : [{
+              statementType: "missing_information",
+              text: "Mock mode records the supplied document without asserting extracted planning facts. No separate technical document-analysis scope was purchased for this file.",
+              sourceId: document.id,
+              sourceDocumentId: document.id,
+              sourceType: "client_uploaded_document",
+              sourceStatus: "client_supplied",
+              issueOrRetrievalDate:
+                document.issueDate ?? document.uploadedAt,
+              verificationState: "requires_professional_review",
+              professionalReviewRequired: true,
+            }];
       document.sourceCitations = [{ documentId: document.id, filename: document.safeFilename }];
       document.status = document.automatedInterpretationEligible ? "processed" : "requires_professional_review";
       document.professionalReviewStatus = document.automatedInterpretationEligible ? "not_required" : "pending";
@@ -119,8 +366,8 @@ export async function runMockReportGeneration(orderId: string) {
     await repository.saveReportJob(job);
     const uploadedCodes = new Set(documents.map((document) => document.category));
     const missingDocuments = baselineMissingDocuments(uploadedCodes);
-    const generationPackage: FrcReportGenerationInputV1 = {
-      schemaVersion: "FRC_REPORT_GENERATION_INPUT_V1",
+    const generationPackage: FrcReportGenerationInputV2 = {
+      schemaVersion: "FRC_REPORT_GENERATION_INPUT_V2",
       order: {
         id: order.id,
         reportType: order.reportType,
@@ -129,22 +376,11 @@ export async function runMockReportGeneration(orderId: string) {
         professionalReviewRequired: order.professionalReviewRequired,
       },
       propertyIdentity: order.property,
-      officialPropertyFacts: order.property.sourceStatus === "official_source_retrieved" ? [{
-        sourceId: "NSW-PROPERTY-DATA",
-        address: order.property.officialAddress ?? order.property.clientSuppliedAddress,
-        lotDp: order.property.lotDp ?? null,
-        council: order.property.council ?? null,
-        mappedAreaSqm: order.property.mappedAreaSqm ?? null,
-        boundaryStatus: order.property.boundaryStatus ?? "official_parcel_mapped",
-      }] : [],
-      sourceRegister: order.property.sourceStatus === "official_source_retrieved" ? [{
-        id: "NSW-PROPERTY-DATA",
-        name: "NSW property-data workflow",
-        status: "official_verified",
-        retrievedAt: now,
-      }] : [],
+      officialPropertyFacts: officialResearch.facts,
+      sourceRegister: officialResearch.sources,
       uploadedDocumentRegister: documents,
       extractedDocumentFacts: documents.flatMap((document) => document.extractedFacts as Array<Record<string, unknown>>),
+      documentAnalysisUpgrades: selectedDocumentAnalysisUpgrades,
       sourceConflicts: documents.flatMap((document) => document.detectedConflicts as Array<Record<string, unknown>>),
       missingDocuments,
       projectDetails: {
@@ -163,7 +399,8 @@ export async function runMockReportGeneration(orderId: string) {
         "Unverified controls and missing source material are identified rather than inferred.",
       ],
       outputTemplateId: template.templateId,
-      reportSchemaVersion: "FRC_REPORT_SCHEMA_V1",
+      reportSchemaVersion: REPORT_SCHEMA_VERSION,
+      templateSnapshots,
     };
     const provider = getReportAiProvider();
     const sections = [];
@@ -257,20 +494,54 @@ export async function runMockReportGeneration(orderId: string) {
             usable: document.malwareScanStatus === "clean" && document.automatedInterpretationEligible,
           };
         }),
-        verifiedPropertyFacts: [],
-        parcelGeometry: typeof order.property.parcelGeometry === "object" ? order.property.parcelGeometry as Record<string, unknown> : null,
+        verifiedPropertyFacts: officialResearch.facts.map((fact) => ({
+          key: String(fact.field ?? "property_fact"),
+          value:
+            typeof fact.value === "string"
+              ? fact.value
+              : JSON.stringify(fact.value ?? null),
+          sourceId: String(fact.sourceId ?? "NSW-PROPERTY-DATA"),
+        })),
+        parcelGeometry: Array.isArray(order.property.parcelGeometry)
+          ? { rings: order.property.parcelGeometry }
+          : typeof order.property.parcelGeometry === "object"
+            ? order.property.parcelGeometry as Record<string, unknown>
+            : null,
         boundaryStatus,
         northDirection: typeof order.property.northDirection === "string" ? order.property.northDirection : null,
         landAreaSqm: typeof order.property.mappedAreaSqm === "number" ? order.property.mappedAreaSqm : null,
         existingBuildingFacts: [],
         proposedDevelopmentType: selectedReport.name,
-        planningConstraints: [],
+        planningConstraints: Array.isArray(order.property.constraints)
+          ? (order.property.constraints as Array<Record<string, unknown>>).map(
+              (constraint) => ({
+                label: String(
+                  constraint.name ?? constraint.label ?? "Property constraint",
+                ),
+                sourceStatus:
+                  constraint.status === "unknown" ||
+                  constraint.status === "specialist"
+                    ? "unknown" as const
+                    : "official_mapped_source" as const,
+              }),
+            )
+          : [],
         uploadedSurveyFacts: documents.filter((document) => document.category === "registered_detail_survey").map((document) => ({ fact: "Registered survey supplied for review.", sourceId: document.id })),
         titleAndEasementFacts: documents.filter((document) => document.category === "title_and_deposited_plan").map((document) => ({ fact: "Title or deposited plan supplied for review.", sourceId: document.id })),
         sewerAndServiceFacts: documents.filter((document) => document.category === "sewer_services_diagram").map(() => ({ fact: "Client-supplied service diagram available for interpretation.", sourceStatus: "uploaded_document" as const })),
         stormwaterFacts: documents.filter((document) => document.category === "stormwater_drawings").map(() => ({ fact: "Client-supplied stormwater drawing available for interpretation.", sourceStatus: "uploaded_document" as const })),
         treesAndVegetation: [],
-        floodAndBushfireInformation: [],
+        floodAndBushfireInformation: officialResearch.facts
+          .filter((fact) =>
+            ["flooding", "bushfire"].includes(String(fact.field)),
+          )
+          .map((fact) => ({
+            fact: `${String(fact.field)}: ${String(fact.value ?? "No mapped value returned")}`,
+            sourceStatus:
+              fact.status === "mapped"
+                ? "official_mapped_source" as const
+                : "unknown" as const,
+          })),
         privacyConsiderations: [],
         professionalReviewRequirement: order.professionalReviewRequired,
         prohibitedClaims: [

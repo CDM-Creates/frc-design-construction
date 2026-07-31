@@ -1,3 +1,6 @@
+import { DOCUMENT_ANALYSIS_UPGRADE_BY_CODE } from "../planning-simulation/document-categories";
+import type { DocumentAnalysisUpgradeCode } from "../planning-simulation/types";
+
 export const REPORT_CATALOGUE_VERSION = "FRC_REPORT_CATALOGUE_2026_01";
 export const REPORT_PRICING_VERSION = "FRC_REPORT_PRICING_2026_02";
 
@@ -339,6 +342,44 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
 
 export const REPORT_BY_ID = new Map(REPORT_CATALOGUE.map((entry) => [entry.id, entry]));
 
+const DOCUMENT_ANALYSIS_INCLUDED_REPORTS: Record<
+  DocumentAnalysisUpgradeCode,
+  readonly string[]
+> = {
+  architectural_plan_set: [
+    "plan_compliance_review",
+    "council_readiness",
+    "complex_development",
+  ],
+  registered_survey: ["council_readiness", "complex_development"],
+  engineering_or_stormwater: ["complex_development"],
+  bushfire_report: ["complex_development"],
+  flood_report: ["complex_development"],
+  arborist_report: ["complex_development"],
+  geotechnical_report: ["complex_development"],
+  other_specialist_report: ["complex_development"],
+};
+
+export function isDocumentAnalysisIncluded(
+  reportIds: readonly string[],
+  upgradeCode: DocumentAnalysisUpgradeCode,
+) {
+  const includedBy = DOCUMENT_ANALYSIS_INCLUDED_REPORTS[upgradeCode];
+  return reportIds.some((reportId) => includedBy.includes(reportId));
+}
+
+export function documentAnalysisIncludedForReports(
+  reportIds: readonly string[],
+) {
+  return (
+    Object.keys(
+      DOCUMENT_ANALYSIS_INCLUDED_REPORTS,
+    ) as DocumentAnalysisUpgradeCode[]
+  ).filter((upgradeCode) =>
+    isDocumentAnalysisIncluded(reportIds, upgradeCode),
+  );
+}
+
 const DEVELOPMENT_ITEM_REPORT_MAP: Record<string, string> = {
   NEW_SINGLE_STOREY_DWELLING: "single_storey_dwelling",
   NEW_TWO_STOREY_DWELLING: "two_storey_dwelling",
@@ -434,13 +475,19 @@ export function calculateCataloguePrice(input: {
   site: SiteAreaPricingInput;
   professionalReviewRequested: boolean;
   priorityReviewRequested: boolean;
+  documentAnalysisUpgrades?: readonly DocumentAnalysisUpgradeCode[];
 }): CataloguePriceResult {
   const selected = [...new Set(input.reportIds)].map((id) => REPORT_BY_ID.get(id));
   if (!selected.length || selected.some((entry) => !entry)) throw new Error("Select at least one valid report.");
-  if (input.priorityReviewRequested && !input.professionalReviewRequested) {
+  const reports = selected as ReportCatalogueEntry[];
+  const reviewSelected =
+    input.professionalReviewRequested ||
+    reports.some((entry) =>
+      ["professional_review", "council_readiness"].includes(entry.id),
+    );
+  if (input.priorityReviewRequested && !reviewSelected) {
     throw new Error("Priority review requires FRC professional review.");
   }
-  const reports = selected as ReportCatalogueEntry[];
   const quoteReasons: string[] = [];
   const lines: CataloguePriceLine[] = [];
   let eligibleIndex = 0;
@@ -477,18 +524,14 @@ export function calculateCataloguePrice(input: {
     }
   }
 
-  const reviewSelected = input.professionalReviewRequested || reports.some((entry) => ["professional_review", "council_readiness"].includes(entry.id));
   if (reviewSelected) {
     const reviewUpgradeCents = 89_500;
     lines.push({ code: "FRC_PROFESSIONAL_REVIEW", label: "FRC professional review", amountCents: reviewUpgradeCents, treatment: "upgrade" });
   }
-  if (input.priorityReviewRequested) {
-    lines.push({ code: "PRIORITY_REVIEW", label: "Priority professional review", amountCents: 45_000, treatment: "upgrade" });
-  }
 
-  let total = lines.reduce((sum, line) => sum + line.amountCents, 0);
   const councilSelected = reports.some((entry) => entry.id === "council_readiness");
   const minimum = councilSelected ? 350_000 : reviewSelected ? 219_500 : 0;
+  let total = lines.reduce((sum, line) => sum + line.amountCents, 0);
   if (!quoteReasons.length && total < minimum) {
     lines.push({
       code: councilSelected ? "COUNCIL_READINESS_MINIMUM" : "PROFESSIONAL_REVIEW_MINIMUM",
@@ -497,6 +540,23 @@ export function calculateCataloguePrice(input: {
       treatment: "minimum_adjustment",
     });
     total = minimum;
+  }
+
+  if (input.priorityReviewRequested) {
+    lines.push({ code: "PRIORITY_REVIEW", label: "Priority professional review", amountCents: 45_000, treatment: "upgrade" });
+    total += 45_000;
+  }
+  for (const code of [...new Set(input.documentAnalysisUpgrades ?? [])]) {
+    const upgrade = DOCUMENT_ANALYSIS_UPGRADE_BY_CODE.get(code);
+    if (!upgrade) throw new Error("A document-analysis upgrade is invalid.");
+    if (isDocumentAnalysisIncluded(input.reportIds, code)) continue;
+    lines.push({
+      code: `DOCUMENT_ANALYSIS_${code.toUpperCase()}`,
+      label: upgrade.label,
+      amountCents: upgrade.feeCents,
+      treatment: "upgrade",
+    });
+    total += upgrade.feeCents;
   }
 
   return {
