@@ -1,4 +1,4 @@
-import { validateDisputeSubmission, type DisputeEntitlement, type ReportDispute } from "../../../../../lib/report-platform/disputes";
+import { enforceSingleIncludedCorrection, validateDisputeSubmission, type DisputeEntitlement, type ReportDispute } from "../../../../../lib/report-platform/disputes";
 import { getReportPlatformRepository } from "../../../../../lib/report-platform/repository";
 import { tokenMatches } from "../../../../../lib/report-platform/security";
 
@@ -27,6 +27,12 @@ export async function POST(request: Request, context: { params: Promise<{ report
     reportSectionCodes: report.structuredReport.sections.map((section) => section.code),
   });
   if (!validation.valid) return Response.json({ error: validation.issues.join(" ") }, { status: 400 });
+  const existingDisputes = await repository.listDisputes(order.id);
+  const singleCorrection = enforceSingleIncludedCorrection({
+    entitlementType,
+    existingEntitlementTypes: existingDisputes.map((entry) => entry.entitlementType),
+  });
+  if (!singleCorrection.allowed) return Response.json({ error: singleCorrection.reason }, { status: 409 });
   const dispute: ReportDispute = {
     id: crypto.randomUUID(),
     orderId: order.id,

@@ -317,6 +317,7 @@ export async function runMockReportGeneration(orderId: string) {
         reportId,
         jobId: job.id,
         accessFragment: reportAccessToken,
+        reportNames: selectedCatalogueReports.map((entry) => entry.name),
       });
     }
     return { order, job, report: finalReport, reportAccessToken };

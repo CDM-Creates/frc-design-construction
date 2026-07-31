@@ -91,16 +91,24 @@ export async function sendClientReportReadyNotification(input: {
   reportId: string;
   jobId: string;
   accessFragment: string;
+  reportNames?: string[];
 }) {
   const business = getBusinessConfiguration();
   if (!input.order.client.email) return null;
   const reviewed = input.order.reportType === "frc_professionally_reviewed" || input.order.reportType === "council_readiness";
-  const subject = "Your FRC report pack is ready";
+  const reportNames = (input.reportNames ?? []).filter((name) => typeof name === "string" && name.trim().length);
+  const subject = reportNames.length === 1
+    ? `Your FRC ${reportNames[0]} is ready`
+    : "Your FRC report pack is ready";
   const base = business.clientBaseUrl || "http://localhost:3000";
+  const secureLink = `${base}/report-status/${input.jobId}#access=${input.accessFragment}`;
+  const reportList = reportNames.length
+    ? `<p>The report pack includes:</p><ul>${reportNames.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul>`
+    : "";
   return recordAndSend(input.order, {
     type: reviewed ? "reviewed_report_ready" : "preliminary_report_ready",
     recipient: input.order.client.email,
     subject,
-    html: `<h1>${escapeHtml(subject)}</h1><p>Hi ${escapeHtml(input.order.client.name)},</p><p>Your FRC report pack for ${escapeHtml(String(input.order.property.clientSuppliedAddress ?? "your property"))} is ready.</p><p>You can view your reports online or securely download the complete ZIP package.</p><p><a href="${escapeHtml(`${base}/report-status/${input.jobId}#access=${input.accessFragment}`)}">View reports and download report pack</a></p><p>Report status: ${reviewed ? "Professionally reviewed" : "Preliminary AI-assisted"}.</p><p>You do not need to keep the original generation page open.</p><p>Please review the report limitations and outstanding-information schedule before relying on the findings for further design, purchase or submission decisions.</p><p>Regards,<br>FRC Design &amp; Construction</p>`,
+    html: `<h1>${escapeHtml(subject)}</h1><p>Hi ${escapeHtml(input.order.client.name)},</p><p>Your FRC report pack for ${escapeHtml(String(input.order.property.clientSuppliedAddress ?? "your property"))} is ready.</p>${reportList}<p>You can view your reports online or securely download the complete ZIP package.</p><p><a href="${escapeHtml(secureLink)}">View reports</a></p><p><a href="${escapeHtml(secureLink)}">Download report pack</a></p><p>Report status: ${reviewed ? "Professionally reviewed" : "Preliminary AI-assisted"}.</p><p>You do not need to keep the original generation page open.</p><p>Please review the report limitations and outstanding-information schedule before relying on the findings for further design, purchase or submission decisions.</p><p>Regards,<br>FRC Design &amp; Construction</p>`,
   });
 }

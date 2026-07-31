@@ -32,6 +32,28 @@ export const INCLUDED_FACTUAL_CORRECTION_TOPICS = [
   "obvious_generation_mistake",
 ] as const;
 
+/**
+ * Every order includes exactly one factual-correction request. A second
+ * `included_factual_correction` for the same order must be routed to a paid
+ * pathway rather than accepted, so we never imply unlimited free corrections.
+ */
+export function enforceSingleIncludedCorrection(input: {
+  entitlementType: string;
+  existingEntitlementTypes: string[];
+}) {
+  if (
+    input.entitlementType === "included_factual_correction" &&
+    input.existingEntitlementTypes.includes("included_factual_correction")
+  ) {
+    return {
+      allowed: false,
+      reason:
+        "This order's included factual-correction request has already been used. Additional review is available through a clarification request, professional-review upgrade or paid detailed review.",
+    };
+  }
+  return { allowed: true, reason: null };
+}
+
 export function validateDisputeSubmission(input: {
   reportId: string;
   orderId: string;
