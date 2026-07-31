@@ -166,6 +166,42 @@ function createMockOutput(input: FrcArchitecturalVisualisationInputV1): Architec
   };
 }
 
+const escapeXml = (value: unknown) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&apos;");
+
+/**
+ * Deterministic, dependency-free mock image bytes for an accepted visualisation.
+ * A live provider supplies real raster bytes; mock mode renders a labelled SVG so
+ * the concept-visualisation slot in the ZIP report pack is never empty and always
+ * carries its mandatory disclaimer and legend.
+ */
+export function renderMockVisualisationImage(record: ArchitecturalVisualisationRecord): {
+  bytes: Uint8Array;
+  mediaType: string;
+  extension: string;
+} {
+  const definition = visualByType.get(record.visualisationType);
+  const title = definition?.title ?? record.visualisationType;
+  const legendRows = record.legend
+    .map((entry, index) => `<text x="40" y="${360 + index * 26}" font-size="16" fill="#1f2933">■ ${escapeXml(entry.label)}</text>`)
+    .join("");
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-label="${escapeXml(title)}">
+  <rect width="1600" height="1000" fill="#f5f2ec"/>
+  <rect x="40" y="40" width="1520" height="920" fill="none" stroke="#c9bda8" stroke-width="3"/>
+  <text x="40" y="120" font-size="42" font-family="Helvetica, Arial, sans-serif" fill="#8a5a1a">FRC DESIGN &amp; CONSTRUCTION</text>
+  <text x="40" y="180" font-size="30" font-family="Helvetica, Arial, sans-serif" fill="#1f2933">${escapeXml(title)}</text>
+  <text x="40" y="240" font-size="18" font-family="Helvetica, Arial, sans-serif" fill="#3a4149">${escapeXml(record.caption)}</text>
+  ${legendRows}
+  <text x="40" y="940" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#7a1d1d">${escapeXml(record.disclaimer)}</text>
+</svg>`;
+  return { bytes: new TextEncoder().encode(svg), mediaType: "image/svg+xml", extension: "svg" };
+}
+
 export function validateArchitecturalVisualisation(input: {
   request: FrcArchitecturalVisualisationInputV1;
   output: ArchitecturalVisualisationRecord;

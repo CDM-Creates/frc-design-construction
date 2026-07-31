@@ -1,5 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { renderMockVisualisationImage } from "./architectural-visualisations";
 import { REPORT_BY_ID } from "./report-catalogue";
 import type {
   ArchitecturalVisualisationRecord,
@@ -10,6 +11,7 @@ import type {
 export const REPORT_PACK_VERSION = "FRC_REPORT_PACK_2026_01";
 export const SOURCE_REGISTER_VERSION = "FRC_SOURCE_REGISTER_2026_01";
 export const DOCUMENT_REGISTER_VERSION = "FRC_DOCUMENT_REGISTER_2026_01";
+export const RISK_REGISTER_VERSION = "FRC_RISK_REGISTER_2026_01";
 
 export type ReportPackFile = {
   path: string;
@@ -30,6 +32,7 @@ export type ReportPackManifest = {
   professionalReviewStatus: string;
   sourceRegisterVersion: typeof SOURCE_REGISTER_VERSION;
   documentRegisterVersion: typeof DOCUMENT_REGISTER_VERSION;
+  riskRegisterVersion: typeof RISK_REGISTER_VERSION;
 };
 
 const cleanFilename = (value: string) => value
@@ -111,6 +114,34 @@ export async function renderStructuredReportPdf(report: StructuredPlanningReport
   return new Uint8Array(await document.save());
 }
 
+export async function renderSimplePdf(title: string, paragraphs: string[]) {
+  const document = await PDFDocument.create();
+  const regular = await document.embedFont(StandardFonts.Helvetica);
+  const bold = await document.embedFont(StandardFonts.HelveticaBold);
+  const pageSize: [number, number] = [595.28, 841.89];
+  let page = document.addPage(pageSize);
+  let y = 790;
+  const draw = (text: string, size = 10, font = regular, colour = rgb(0.12, 0.15, 0.18)) => {
+    for (const line of wrapText(text, size >= 18 ? 52 : 94)) {
+      if (y < 55) {
+        page = document.addPage(pageSize);
+        y = 790;
+      }
+      page.drawText(line, { x: 48, y, size, font, color: colour });
+      y -= size + 5;
+    }
+  };
+  draw("FRC DESIGN & CONSTRUCTION", 9, bold, rgb(0.55, 0.32, 0.1));
+  y -= 20;
+  draw(title, 21, bold);
+  y -= 10;
+  for (const paragraph of paragraphs) {
+    draw(paragraph, 10);
+    y -= 8;
+  }
+  return new Uint8Array(await document.save());
+}
+
 const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 
 function rowsToCsv(rows: Array<Record<string, unknown>>) {
@@ -140,6 +171,7 @@ export async function buildReportPack(input: {
   includeClientUploads: boolean;
   authorisedClientUploadBytes?: Record<string, Uint8Array>;
   professionalReviewStatus: string;
+  reviewerRecord?: Record<string, unknown> | null;
 }) {
   const used = new Set<string>();
   const files: ReportPackFile[] = [];
@@ -165,9 +197,11 @@ export async function buildReportPack(input: {
 
   const acceptedVisuals = input.visualisations.filter((visual) => ["accepted", "approved"].includes(visual.status));
   for (const [index, visual] of acceptedVisuals.entries()) {
-    const bytes = input.visualisationBytes?.[visual.id];
-    if (!bytes) continue;
-    add(`10_Concept_Visualisations/${String(index + 1).padStart(2, "0")}_${cleanFilename(visual.visualisationType)}.jpg`, bytes, "image/jpeg", "accepted_visualisation");
+    const provided = input.visualisationBytes?.[visual.id];
+    const image = provided
+      ? { bytes: provided, mediaType: "image/jpeg", extension: "jpg" }
+      : renderMockVisualisationImage(visual);
+    add(`10_Concept_Visualisations/${String(index + 1).padStart(2, "0")}_${cleanFilename(visual.visualisationType)}.${image.extension}`, image.bytes, image.mediaType, "accepted_visualisation");
   }
 
   const sourceRows = input.report.sections.flatMap((section) => section.statements.map((statement) => ({
@@ -182,6 +216,22 @@ export async function buildReportPack(input: {
   add("91_Document_Register.csv", strToU8(rowsToCsv(input.report.documentRegister)), "text/csv");
   add("92_Risk_Register.csv", strToU8(rowsToCsv(input.report.riskRegister)), "text/csv");
   add("93_Action_Plan.pdf", await renderStructuredReportPdf({ ...input.report, sections: input.report.sections.filter((section) => section.code === "22_prioritised_action_plan") }, "Prioritised action plan"), "application/pdf");
+
+  if (input.reviewerRecord && Object.keys(input.reviewerRecord).length) {
+    const reviewLines = Object.entries(input.reviewerRecord).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
+    add("95_Professional_Review_Record.pdf", await renderSimplePdf("Professional review record", [
+      "This record is produced only after a registered professional completed the review.",
+      ...reviewLines,
+    ]), "application/pdf");
+  }
+
+  if (reportIds.includes("council_readiness")) {
+    const councilSections = input.report.sections.filter((section) => /council|readiness|submission|document_register/i.test(section.code));
+    const councilLines = councilSections.length
+      ? councilSections.flatMap((section) => [section.heading, section.summary, ...section.bullets.map((bullet) => `• ${bullet}`)])
+      : ["Council-readiness status is preliminary until a registered professional confirms the submission documents."];
+    add("96_Council_Readiness_Checklist.pdf", await renderSimplePdf("Council-readiness checklist", councilLines), "application/pdf");
+  }
 
   if (input.includeClientUploads) {
     for (const document of input.documents) {
@@ -203,6 +253,7 @@ export async function buildReportPack(input: {
     professionalReviewStatus: input.professionalReviewStatus,
     sourceRegisterVersion: SOURCE_REGISTER_VERSION,
     documentRegisterVersion: DOCUMENT_REGISTER_VERSION,
+    riskRegisterVersion: RISK_REGISTER_VERSION,
   };
   manifest.files = await Promise.all(files.map(async (file) => ({
     path: file.path,
