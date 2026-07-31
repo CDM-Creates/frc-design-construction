@@ -135,7 +135,7 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(`planning-price:${client}`, 120, 60 * 60 * 1000);
   if (!limit.allowed) {
     return Response.json(
-      { error: "Too many pricing requests. Please try again shortly." },
+      { error: "Too many pricing requests. Please try again later." },
       { status: 429 },
     );
   }

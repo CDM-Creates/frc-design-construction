@@ -667,7 +667,7 @@ export async function POST(request: Request) {
     const message = caught instanceof Error ? caught.message : String(caught);
     console.error("[site-analysis] Live property analysis failed", caught);
     return Response.json({
-      error: "The NSW address was valid, but one of the live NSW data services did not complete the analysis. Please try again shortly.",
+      error: "The NSW address was valid, but one of the live NSW data services did not complete the analysis. Please try again later.",
       ...(process.env.NODE_ENV !== "production" ? { details: message } : {}),
     }, { status: 502 });
   }
