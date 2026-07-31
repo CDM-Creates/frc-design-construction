@@ -253,7 +253,7 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
   }),
   report({
     id: "detailed_options_comparison",
-    templateId: "frc-detailed-options-comparison-v1",
+    templateId: "frc-options-comparison-v1",
     name: "Detailed Development Options Comparison",
     purpose: "Compares several confirmed development options on a consistent evidence base.",
     suitedTo: ["property_owner", "prospective_buyer", "investor_developer", "external_architect", "external_designer"],

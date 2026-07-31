@@ -35,6 +35,7 @@ export async function GET(request: Request, context: { params: Promise<{ reportI
     visualisations: report.structuredReport.visualisations ?? [],
     includeClientUploads: false,
     professionalReviewStatus: report.structuredReport.reportStatus,
+    reviewerRecord: report.reviewerRecord ?? null,
   });
   await repository.addOrderEvent({
     id: crypto.randomUUID(),

@@ -50,6 +50,7 @@ export interface ReportPlatformRepository {
   hasNotification(orderId: string, type: string): Promise<boolean>;
   createDispute(dispute: ReportDispute): Promise<void>;
   getDispute(disputeId: string): Promise<ReportDispute | null>;
+  listDisputes(orderId: string): Promise<ReportDispute[]>;
   listReviewQueue(): Promise<Array<{ order: ReportOrder; job: ReportJob; report: FinalReportRecord | null }>>;
 }
 
@@ -157,6 +158,24 @@ function rowToFinalReport(row: Row): FinalReportRecord {
     reviewerRecord: parse(row.reviewer_record_json, null),
     releasedAt: row.released_at ? String(row.released_at) : null,
     version: Number(row.version),
+  };
+}
+
+function rowToDispute(row: Row): ReportDispute {
+  return {
+    id: String(row.id),
+    orderId: String(row.order_id),
+    reportId: String(row.report_id),
+    disputedSectionCode: String(row.disputed_section_code),
+    entitlementType: String(row.entitlement_type) as ReportDispute["entitlementType"],
+    clientExplanation: String(row.client_explanation),
+    supportingStorageReference: row.supporting_storage_reference ? String(row.supporting_storage_reference) : null,
+    status: String(row.status) as ReportDispute["status"],
+    assignedReviewer: row.assigned_reviewer ? String(row.assigned_reviewer) : null,
+    outcome: row.outcome ? String(row.outcome) : null,
+    correctionRecord: parse(row.correction_record_json, null),
+    createdAt: String(row.created_at),
+    completedAt: row.completed_at ? String(row.completed_at) : null,
   };
 }
 
@@ -442,21 +461,12 @@ class LocalSqliteReportPlatformRepository implements ReportPlatformRepository {
   async getDispute(disputeId: string) {
     const row = await this.db.prepare("SELECT * FROM report_disputes WHERE id = ?").get(disputeId) as Row | undefined;
     if (!row) return null;
-    return {
-      id: String(row.id),
-      orderId: String(row.order_id),
-      reportId: String(row.report_id),
-      disputedSectionCode: String(row.disputed_section_code),
-      entitlementType: String(row.entitlement_type) as ReportDispute["entitlementType"],
-      clientExplanation: String(row.client_explanation),
-      supportingStorageReference: row.supporting_storage_reference ? String(row.supporting_storage_reference) : null,
-      status: String(row.status) as ReportDispute["status"],
-      assignedReviewer: row.assigned_reviewer ? String(row.assigned_reviewer) : null,
-      outcome: row.outcome ? String(row.outcome) : null,
-      correctionRecord: parse(row.correction_record_json, null),
-      createdAt: String(row.created_at),
-      completedAt: row.completed_at ? String(row.completed_at) : null,
-    };
+    return rowToDispute(row);
+  }
+
+  async listDisputes(orderId: string) {
+    const rows = await this.db.prepare("SELECT * FROM report_disputes WHERE order_id = ? ORDER BY created_at ASC").all(orderId);
+    return (rows as Row[]).map(rowToDispute);
   }
 
   async listReviewQueue() {

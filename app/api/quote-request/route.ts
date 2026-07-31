@@ -280,7 +280,7 @@ export async function POST(request: Request) {
     if (!emailResponse.ok) {
       const details = await emailResponse.text();
       console.error("Quote email delivery failed", emailResponse.status, details);
-      return Response.json({ error: "The project brief was complete, but email delivery failed. Please try again shortly." }, { status: 502 });
+      return Response.json({ error: "The project brief was complete, but email delivery failed. Please try again later." }, { status: 502 });
     }
 
     return Response.json({ ok: true, jobId, internalPath: `/simulation-results/${jobId}` });

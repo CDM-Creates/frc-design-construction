@@ -208,7 +208,7 @@ export async function POST(request: Request) {
   const limit = checkRateLimit(`planning-scope:${client}`, 20, 60 * 60 * 1000);
   if (!limit.allowed) {
     return Response.json(
-      { error: "Too many scope confirmations. Please try again shortly." },
+      { error: "Too many scope confirmations. Please try again later." },
       { status: 429 },
     );
   }
