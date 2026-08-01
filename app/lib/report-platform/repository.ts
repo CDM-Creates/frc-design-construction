@@ -1,4 +1,4 @@
-import { getPlatformMode } from "./config";
+import { getPlatformDataBackend, getPlatformMode } from "./config";
 import { assertOrderTransition } from "./status-transitions";
 import type { ReportDispute } from "./disputes";
 import type {
@@ -25,7 +25,7 @@ type SqlDatabase = {
 };
 
 export interface ReportPlatformRepository {
-  createDraftOrder(ownerHash: string): Promise<ReportOrder>;
+  createDraftOrder(ownerHash: string, requestedId?: string): Promise<ReportOrder>;
   getOrder(orderId: string): Promise<ReportOrder | null>;
   saveOrder(order: ReportOrder): Promise<void>;
   transitionOrder(orderId: string, to: OrderStatus, actor: string, metadata?: Record<string, unknown>): Promise<ReportOrder>;
@@ -182,10 +182,10 @@ function rowToDispute(row: Row): ReportDispute {
 class LocalSqliteReportPlatformRepository implements ReportPlatformRepository {
   constructor(private readonly db: SqlDatabase) {}
 
-  async createDraftOrder(ownerHash: string) {
+  async createDraftOrder(ownerHash: string, requestedId?: string) {
     const now = new Date().toISOString();
     const order: ReportOrder = {
-      id: crypto.randomUUID(),
+      id: requestedId && /^[a-f0-9-]{36}$/.test(requestedId) ? requestedId : crypto.randomUUID(),
       ownerHash,
       status: "draft",
       isTest: getPlatformMode() === "test",
@@ -526,12 +526,17 @@ class D1SqlDatabase implements SqlDatabase {
 }
 
 async function initialiseLocalRepository(): Promise<ReportPlatformRepository> {
-  const [{ DatabaseSync }, fs, path] = await Promise.all([
+  const [{ DatabaseSync }, fs, os, path] = await Promise.all([
     import("node:sqlite"),
     import("node:fs"),
+    import("node:os"),
     import("node:path"),
   ]);
-  const root = process.env.FRC_LOCAL_DATA_DIR || path.join(process.cwd(), ".frc-local");
+  const root = process.env.FRC_LOCAL_DATA_DIR || (
+    process.env.VERCEL
+      ? path.join(os.tmpdir(), "frc-report-platform")
+      : path.join(process.cwd(), ".frc-local")
+  );
   fs.mkdirSync(root, { recursive: true });
   const db = new DatabaseSync(path.join(root, "report-platform.sqlite")) as unknown as SqlDatabase;
   db.exec("PRAGMA foreign_keys = ON");
@@ -627,9 +632,8 @@ async function initialiseD1Repository(): Promise<ReportPlatformRepository> {
 }
 
 export async function getReportPlatformRepository() {
-  repositoryPromise ??=
-    getPlatformMode() === "test"
-      ? initialiseLocalRepository()
-      : initialiseD1Repository();
+  repositoryPromise ??= getPlatformDataBackend() === "cloudflare"
+    ? initialiseD1Repository()
+    : initialiseLocalRepository();
   return repositoryPromise;
 }

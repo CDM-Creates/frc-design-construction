@@ -2,10 +2,21 @@ import type { TaxTreatment } from "../planning-simulation/types";
 
 export type PlatformMode = "test" | "production";
 
+export type PlatformDataBackend = "node" | "cloudflare";
+
 export function getPlatformMode(): PlatformMode {
   if (process.env.FRC_PLATFORM_MODE === "production") return "production";
   if (process.env.FRC_PLATFORM_MODE === "test") return "test";
   return process.env.NODE_ENV === "production" ? "production" : "test";
+}
+
+/** Business mode and hosting runtime are deliberately separate. */
+export function getPlatformDataBackend(): PlatformDataBackend {
+  if (process.env.FRC_DATA_BACKEND === "cloudflare") return "cloudflare";
+  if (process.env.FRC_DATA_BACKEND === "node") return "node";
+  return process.env.CF_PAGES || process.env.CLOUDFLARE_WORKERS
+    ? "cloudflare"
+    : "node";
 }
 
 const configuredUrl = (value: string | undefined) => {
@@ -33,7 +44,7 @@ export function getBusinessConfiguration() {
     taxTreatment,
     currency: "AUD" as const,
     businessEmail: process.env.FRC_BUSINESS_EMAIL ?? "",
-    headArchitectEmail: process.env.HEAD_ARCHITECT_EMAIL ?? "",
+    headArchitectEmail: process.env.HEAD_ARCHITECT_EMAIL ?? "frcdesignconstruction@gmail.com",
     termsUrl: configuredUrl(process.env.FRC_TERMS_URL),
     privacyUrl: configuredUrl(process.env.FRC_PRIVACY_URL),
     refundPolicyUrl: configuredUrl(process.env.FRC_REFUND_POLICY_URL),
@@ -60,8 +71,8 @@ export function getProductionReadiness(): {
 } {
   const business = getBusinessConfiguration();
   const checks: ReadinessCheck[] = [
-    { code: "database", label: "Database connection and migrations", status: getPlatformMode() === "test" ? "mock_only" : "configured_unverified", detail: getPlatformMode() === "test" ? "Local SQLite test repository; hosted builds use the D1 `DB` binding." : "D1 adapter and migrations are packaged; verify the hosted binding and migration result before live launch." },
-    { code: "private_storage", label: "Private document storage", status: getPlatformMode() === "test" ? "mock_only" : "configured_unverified", detail: getPlatformMode() === "test" ? "Local private test storage; hosted builds use the R2 `PROJECT_FILES` binding." : "Private R2 adapter is configured; verify retention, access and malware-scanning controls before live launch." },
+    { code: "database", label: "Database connection and migrations", status: getPlatformDataBackend() === "cloudflare" ? "configured_unverified" : "mock_only", detail: getPlatformDataBackend() === "cloudflare" ? "Cloudflare D1 is selected; verify bindings, migrations and backups." : "Node SQLite fallback is selected. Durable production retention still requires D1 or another durable adapter." },
+    { code: "private_storage", label: "Private document storage", status: getPlatformDataBackend() === "cloudflare" ? "configured_unverified" : "mock_only", detail: getPlatformDataBackend() === "cloudflare" ? "Private R2 is selected; verify retention and malware-scanning controls." : "Node private-storage fallback is selected. Durable production uploads still require R2 or another durable store." },
     { code: "upload_signing", label: "Authenticated file access", status: process.env.FILE_SIGNING_SECRET ? "configured_unverified" : "missing", detail: process.env.FILE_SIGNING_SECRET ? "Signing secret is present but not externally verified." : "FILE_SIGNING_SECRET is missing." },
     { code: "malware", label: "Malware scanning provider", status: process.env.MALWARE_SCANNER_PROVIDER ? "configured_unverified" : "missing", detail: process.env.MALWARE_SCANNER_PROVIDER ? "Provider configured; verification is required." : "No real malware scanning provider is configured." },
     { code: "email", label: "Email provider", status: process.env.RESEND_API_KEY ? "configured_unverified" : "mock_only", detail: process.env.RESEND_API_KEY ? "Resend credential present; sending domain must be verified." : "Development notification logger only." },

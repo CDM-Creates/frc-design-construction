@@ -39,7 +39,7 @@ test("order state machine rejects browser-style skips", () => {
   assert.throws(() => transitions.assertOrderTransition("draft", "completed"), /Invalid order status transition/);
 });
 
-const configUrl = "data:text/javascript,export%20const%20getPlatformMode=()=>%22test%22;";
+const configUrl = "data:text/javascript,export%20const%20getPlatformMode=()=>%22test%22;export%20const%20getPlatformDataBackend=()=>%22node%22;";
 const storage = await importTranspiled("../app/lib/report-platform/storage.ts", [
   ['from "./config";', `from "${configUrl}";`],
 ]);

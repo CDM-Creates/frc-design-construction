@@ -1,5 +1,3 @@
-import { getPlatformMode } from "./config";
-
 export type CheckoutSessionInput = {
   orderId: string;
   totalCents: number;
@@ -126,7 +124,7 @@ export class UnconfiguredPaymentProvider implements PaymentProvider {
 }
 
 export function getPaymentProvider(): PaymentProvider {
-  if (getPlatformMode() === "test" && process.env.PAYMENTS_LIVE_ENABLED !== "true") {
+  if (process.env.PAYMENTS_LIVE_ENABLED !== "true") {
     return new MockPaymentProvider();
   }
   return new UnconfiguredPaymentProvider();

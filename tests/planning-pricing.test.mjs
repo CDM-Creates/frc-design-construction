@@ -137,7 +137,7 @@ test("basic uploads do not create charges while premium interpretation does", ()
     documentAnalysisUpgrades: ["registered_survey", "flood_report"],
   }));
   assert.equal(basic.totalCents, 94_500);
-  assert.equal(upgraded.totalCents, 149_000);
+  assert.equal(upgraded.totalCents, 139_000);
   assert.equal(reviewedUpgraded.totalCents, 309_000);
 });
 

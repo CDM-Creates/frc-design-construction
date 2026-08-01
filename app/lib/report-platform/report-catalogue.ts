@@ -2,7 +2,7 @@ import { DOCUMENT_ANALYSIS_UPGRADE_BY_CODE } from "../planning-simulation/docume
 import type { DocumentAnalysisUpgradeCode } from "../planning-simulation/types";
 
 export const REPORT_CATALOGUE_VERSION = "FRC_REPORT_CATALOGUE_2026_01";
-export const REPORT_PRICING_VERSION = "FRC_REPORT_PRICING_2026_02";
+export const REPORT_PRICING_VERSION = "FRC_REPORT_PRICING_2026_03";
 
 export const CUSTOMER_TYPES = [
   {
@@ -288,8 +288,8 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     referencesRequired: false,
     drawingsRequired: false,
     professionalReview: "included",
-    priceCents: null,
-    fromPriceCents: 219_500,
+    priceCents: 219_500,
+    fromPriceCents: null,
     sharedCreditCents: 0,
     minimumStandalonePriceCents: 219_500,
     combinable: true,
@@ -309,8 +309,8 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     referencesRequired: false,
     drawingsRequired: true,
     professionalReview: "mandatory",
-    priceCents: null,
-    fromPriceCents: 350_000,
+    priceCents: 350_000,
+    fromPriceCents: null,
     sharedCreditCents: 0,
     minimumStandalonePriceCents: 350_000,
     combinable: true,
@@ -330,11 +330,11 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     referencesRequired: true,
     drawingsRequired: false,
     professionalReview: "mandatory",
-    priceCents: null,
-    fromPriceCents: 350_000,
+    priceCents: 350_000,
+    fromPriceCents: null,
     sharedCreditCents: 0,
     minimumStandalonePriceCents: 350_000,
-    combinable: false,
+    combinable: true,
     developmentSpecific: true,
     recommendedFor: ["tailored_assessment"],
   }),
@@ -480,25 +480,21 @@ export function calculateCataloguePrice(input: {
   const selected = [...new Set(input.reportIds)].map((id) => REPORT_BY_ID.get(id));
   if (!selected.length || selected.some((entry) => !entry)) throw new Error("Select at least one valid report.");
   const reports = selected as ReportCatalogueEntry[];
-  const reviewSelected =
+  const reviewUpgradeSelected =
     input.professionalReviewRequested ||
-    reports.some((entry) =>
-      ["professional_review", "council_readiness"].includes(entry.id),
-    );
-  if (input.priorityReviewRequested && !reviewSelected) {
+    reports.some((entry) => entry.id === "professional_review");
+  const selectedReportsIncludeReview = reports.some((entry) =>
+    entry.professionalReview === "mandatory" || entry.professionalReview === "included"
+  );
+  if (input.priorityReviewRequested && !reviewUpgradeSelected && !selectedReportsIncludeReview) {
     throw new Error("Priority review requires FRC professional review.");
   }
-  const quoteReasons: string[] = [];
   const lines: CataloguePriceLine[] = [];
   let eligibleIndex = 0;
 
   for (const entry of reports) {
-    if (!entry.combinable && reports.length > 1) quoteReasons.push(`${entry.name} requires a separate tailored quotation.`);
-    if (entry.priceCents === null) {
-      if (entry.id === "professional_review") continue;
-      quoteReasons.push(`${entry.name} requires a tailored quotation from A$${((entry.fromPriceCents ?? 0) / 100).toLocaleString("en-AU")}.`);
-      continue;
-    }
+    if (entry.id === "professional_review") continue;
+    if (entry.priceCents === null) throw new Error(`${entry.name} does not have a configured checkout price.`);
     lines.push({ code: `REPORT_${entry.id.toUpperCase()}`, label: entry.name, amountCents: entry.priceCents, treatment: "report" });
     if (eligibleIndex > 0 && entry.sharedCreditCents > 0) {
       const maximumCredit = entry.minimumStandalonePriceCents === null
@@ -510,11 +506,17 @@ export function calculateCataloguePrice(input: {
     eligibleIndex += 1;
   }
 
-  if (input.site.parcelCount > 1) quoteReasons.push("Multiple adjoining lots require a tailored quotation.");
-  if (input.site.ruralOrNonStandard) quoteReasons.push("Rural, agricultural or unusual non-standard land requires a tailored quotation.");
-  if (input.site.areaStatus === "conflict_detected") quoteReasons.push("Material land-area conflict requires professional confirmation before final pricing.");
+  if (input.site.parcelCount > 1) {
+    lines.push({ code: "ADDITIONAL_PARCELS", label: `Additional-property research (${input.site.parcelCount - 1})`, amountCents: (input.site.parcelCount - 1) * 49_500, treatment: "site_adjustment" });
+  }
+  if (input.site.ruralOrNonStandard) {
+    lines.push({ code: "NON_STANDARD_LAND", label: "Rural or non-standard land research", amountCents: 69_500, treatment: "site_adjustment" });
+  }
+  if (input.site.areaStatus === "conflict_detected") {
+    lines.push({ code: "AREA_CONFLICT_RECORDED", label: "Land-area discrepancy recorded for report review", amountCents: 0, treatment: "site_adjustment" });
+  }
   if (input.site.areaSqm !== null && input.site.areaSqm > SITE_AREA_PRICING_RULES.tailoredAboveSqm) {
-    quoteReasons.push("Sites over 10,000 m² require a tailored quotation.");
+    lines.push({ code: "EXTRA_LARGE_SITE", label: "Extra-large-site research and whole-site analysis", amountCents: 99_500, treatment: "site_adjustment" });
   }
   const areaCanSetPrice = input.site.areaSqm !== null && !["unavailable", "approximate_only", "conflict_detected"].includes(input.site.areaStatus);
   if (areaCanSetPrice && input.site.areaSqm !== null && input.site.areaSqm <= SITE_AREA_PRICING_RULES.tailoredAboveSqm) {
@@ -524,15 +526,15 @@ export function calculateCataloguePrice(input: {
     }
   }
 
-  if (reviewSelected) {
+  if (reviewUpgradeSelected) {
     const reviewUpgradeCents = 89_500;
     lines.push({ code: "FRC_PROFESSIONAL_REVIEW", label: "FRC professional review", amountCents: reviewUpgradeCents, treatment: "upgrade" });
   }
 
   const councilSelected = reports.some((entry) => entry.id === "council_readiness");
-  const minimum = councilSelected ? 350_000 : reviewSelected ? 219_500 : 0;
+  const minimum = councilSelected ? 350_000 : reviewUpgradeSelected ? 219_500 : 0;
   let total = lines.reduce((sum, line) => sum + line.amountCents, 0);
-  if (!quoteReasons.length && total < minimum) {
+  if (total < minimum) {
     lines.push({
       code: councilSelected ? "COUNCIL_READINESS_MINIMUM" : "PROFESSIONAL_REVIEW_MINIMUM",
       label: councilSelected ? "Council-readiness minimum engagement adjustment" : "Professional-review minimum engagement adjustment",
@@ -564,9 +566,9 @@ export function calculateCataloguePrice(input: {
     catalogueVersion: REPORT_CATALOGUE_VERSION,
     currency: "AUD",
     lines,
-    quoteRequired: quoteReasons.length > 0,
-    quoteReasons: [...new Set(quoteReasons)],
-    totalCents: quoteReasons.length ? null : total,
+    quoteRequired: false,
+    quoteReasons: [],
+    totalCents: total,
   };
 }
 

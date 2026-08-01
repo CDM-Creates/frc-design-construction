@@ -22,13 +22,13 @@ test("launch catalogue contains every complete report and versioned integer-cent
   assert.equal(catalogue.REPORT_BY_ID.get("property_intelligence").priceCents, 69_500);
   assert.equal(catalogue.REPORT_BY_ID.get("development_potential").priceCents, 99_500);
   assert.equal(catalogue.REPORT_BY_ID.get("investor_options").priceCents, 149_500);
-  assert.equal(catalogue.REPORT_BY_ID.get("council_readiness").fromPriceCents, 350_000);
+  assert.equal(catalogue.REPORT_BY_ID.get("council_readiness").priceCents, 350_000);
   assert.match(catalogue.REPORT_PRICING_VERSION, /^FRC_REPORT_PRICING_/);
   for (const report of catalogue.REPORT_CATALOGUE) {
     assert.ok(report.includes.length);
     assert.ok(report.excludes.length);
     assert.ok(report.outputFiles.includes("ZIP report pack"));
-    assert.equal(Number.isInteger(report.priceCents ?? report.fromPriceCents), true);
+    assert.equal(Number.isInteger(report.priceCents), true);
   }
 });
 
@@ -103,7 +103,7 @@ test("document-analysis and professional-review selections change the catalogue 
   );
 });
 
-test("site-area tiers are transparent and uncertain or complex land is routed safely", () => {
+test("site-area, additional-property and uncertainty rules keep an exact checkout total", () => {
   const price = (areaSqm, areaStatus = "official_parcel_mapped", parcelCount = 1) => catalogue.calculateCataloguePrice({
     reportIds: ["property_intelligence"],
     customerType: "property_owner",
@@ -115,10 +115,12 @@ test("site-area tiers are transparent and uncertain or complex land is routed sa
   assert.equal(price(1_001).lines.find((line) => line.code === "SITE_AREA_COMPLEXITY").amountCents, 19_500);
   assert.equal(price(2_001).lines.find((line) => line.code === "SITE_AREA_COMPLEXITY").amountCents, 39_500);
   assert.equal(price(5_001).lines.find((line) => line.code === "SITE_AREA_COMPLEXITY").amountCents, 69_500);
-  assert.equal(price(10_001).quoteRequired, true);
-  assert.equal(price(5_000, "conflict_detected").quoteRequired, true);
+  assert.equal(price(10_001).totalCents, 169_000);
+  assert.equal(price(5_000, "conflict_detected").totalCents, 69_500);
+  assert.ok(price(5_000, "conflict_detected").lines.some((line) => line.code === "AREA_CONFLICT_RECORDED"));
   assert.equal(price(5_000, "approximate_only").lines.some((line) => line.code === "SITE_AREA_COMPLEXITY"), false);
-  assert.equal(price(900, "official_parcel_mapped", 2).quoteRequired, true);
+  assert.equal(price(900, "official_parcel_mapped", 2).totalCents, 119_000);
+  assert.equal(price(900, "official_parcel_mapped", 2).quoteRequired, false);
 });
 
 const boundary = await import(dataUrl(transpile(await readFile(new URL("../app/lib/report-platform/property-boundary.ts", import.meta.url), "utf8"))));

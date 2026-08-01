@@ -12,7 +12,7 @@ import type {
   PlansStatus,
   SelectedDevelopmentItem,
 } from "../../../lib/planning-simulation/types";
-import { getBusinessConfiguration, getPlatformMode } from "../../../lib/report-platform/config";
+import { getBusinessConfiguration, getPlatformDataBackend } from "../../../lib/report-platform/config";
 import {
   CUSTOMER_TYPES,
   DECISION_OBJECTIVES,
@@ -25,7 +25,7 @@ import {
 } from "../../../lib/report-platform/report-catalogue";
 import { fetchSafeReferenceMetadata, validateReferenceRequirement, type ReferenceMaterialInput } from "../../../lib/report-platform/reference-material";
 import { getReportPlatformRepository } from "../../../lib/report-platform/repository";
-import { safeRequestMetadata, tokenMatches } from "../../../lib/report-platform/security";
+import { hashAccessToken, safeRequestMetadata, tokenMatches, verifyServerProof } from "../../../lib/report-platform/security";
 import type { ConsentRecord } from "../../../lib/report-platform/types";
 
 const plansStatuses = new Set<PlansStatus>(["none", "frc_final", "frc_in_progress", "external_complete", "external_incomplete", "sheila_concept_required"]);
@@ -38,6 +38,39 @@ const customerTypeIds = new Set(CUSTOMER_TYPES.map((customer) => customer.id));
 const decisionObjectiveIds = new Set(DECISION_OBJECTIVES.map((objective) => objective.id));
 
 const clean = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
+
+const cleanList = (value: unknown, maximumItems = 50, maximumLength = 500) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").map((item) => clean(item, maximumLength)).filter(Boolean).slice(0, maximumItems)
+    : [];
+
+const optionalNumber = (value: unknown, minimum = 0, maximum = 1_000_000) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= minimum && number <= maximum ? number : null;
+};
+
+function parseProjectMotivation(value: unknown) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    selections: cleanList(raw.selections, 30, 240),
+    writtenMotivation: clean(raw.writtenMotivation, 10_000),
+    intendedUsers: clean(raw.intendedUsers, 2_000),
+    desiredRooms: cleanList(raw.desiredRooms, 100, 240),
+    bedroomCount: optionalNumber(raw.bedroomCount, 0, 20),
+    bathroomCount: optionalNumber(raw.bathroomCount, 0, 20),
+    approximateFloorAreaSqm: optionalNumber(raw.approximateFloorAreaSqm, 1, 10_000),
+    storeyPreference: clean(raw.storeyPreference, 100) || null,
+    accessibilityRequirements: cleanList(raw.accessibilityRequirements, 50, 500),
+    preferredStyle: clean(raw.preferredStyle, 1_000) || null,
+    preferredMaterials: cleanList(raw.preferredMaterials, 50, 500),
+    relationshipToExistingDwelling: clean(raw.relationshipToExistingDwelling, 2_000) || null,
+    privacyPreferences: cleanList(raw.privacyPreferences, 50, 500),
+    outdoorSpacePriorities: cleanList(raw.outdoorSpacePriorities, 50, 500),
+    parkingNeeds: clean(raw.parkingNeeds, 1_000) || null,
+    budgetRange: clean(raw.budgetRange, 500) || null,
+    timeframe: clean(raw.timeframe, 500) || null,
+  };
+}
 
 function normaliseBoundaryStatus(value: unknown) {
   const status = clean(value, 80);
@@ -170,7 +203,10 @@ export async function POST(request: Request) {
     const orderId = clean(body.orderId, 80);
     const accessToken = clean(body.accessToken, 160);
     const repository = await getReportPlatformRepository();
-    const order = await repository.getOrder(orderId);
+    let order = await repository.getOrder(orderId);
+    if (!order && getPlatformDataBackend() === "node" && orderId && accessToken) {
+      order = await repository.createDraftOrder(await hashAccessToken(accessToken), orderId);
+    }
     if (!order || !(await tokenMatches(accessToken, order.ownerHash))) return Response.json({ error: "Order authorisation failed." }, { status: 403 });
     if (
       ["ready_for_checkout", "awaiting_payment"].includes(order.status) &&
@@ -220,10 +256,19 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    if (
-      usingCatalogue &&
-      order.property.propertyResearchStatus !== "complete"
-    ) {
+    if (usingCatalogue && order.property.propertyResearchStatus !== "complete") {
+      const proof = clean(body.propertyResearchProof, 2_000_000);
+      if (proof) {
+        const verified = await verifyServerProof<{ orderId: string; property: Record<string, unknown>; expiresAt: string }>(proof);
+        if (verified.orderId !== order.id || verified.property?.propertyResearchStatus !== "complete") {
+          throw new Error("The property-research proof does not match this order.");
+        }
+        order.property = verified.property;
+        order.updatedAt = new Date().toISOString();
+        await repository.saveOrder(order);
+      }
+    }
+    if (usingCatalogue && order.property.propertyResearchStatus !== "complete") {
       return Response.json(
         {
           error:
@@ -337,7 +382,10 @@ export async function POST(request: Request) {
     if (!client.name || !/^\S+@\S+\.\S+$/.test(client.email) || !client.phone) throw new Error("Name, email and phone are required.");
 
     const professionalReviewRequested = usingCatalogue
-      ? body.professionalReviewRequested === true || selectedReportIds.some((id) => ["professional_review", "council_readiness"].includes(id))
+      ? body.professionalReviewRequested === true || selectedReportIds.some((id) => {
+          const review = REPORT_BY_ID.get(id)?.professionalReview;
+          return review === "mandatory" || review === "included";
+        })
       : Boolean(pricingInput?.professionalVerificationRequested);
     const priorityRequested = usingCatalogue ? body.priorityReviewRequested === true : Boolean(pricingInput?.priorityRequested);
     const consentRaw = body.consents && typeof body.consents === "object" && !Array.isArray(body.consents) ? body.consents as Record<string, unknown> : {};
@@ -347,7 +395,7 @@ export async function POST(request: Request) {
     const acceptedAt = new Date().toISOString();
     const consents = requiredConsentCodes.map((code) => ({ code, textVersion: "FRC_CONSENT_2026_01" as const, acceptedAt }));
     const business = getBusinessConfiguration();
-    if (getPlatformMode() === "production" && business.taxTreatment === "unconfigured_test_only") throw new Error("GST configuration must be confirmed before production checkout.");
+    if (process.env.PAYMENTS_LIVE_ENABLED === "true" && business.taxTreatment === "unconfigured_test_only") throw new Error("GST configuration must be confirmed before live checkout.");
 
     const submittedProperty =
       body.property &&
@@ -389,7 +437,9 @@ export async function POST(request: Request) {
             parcelCount: Number.isInteger(Number(property.parcelCount)) ? Number(property.parcelCount) : 1,
             ruralOrNonStandard: property.ruralOrNonStandard === true,
           },
-          professionalReviewRequested,
+          professionalReviewRequested:
+            body.professionalReviewRequested === true ||
+            selectedReportIds.includes("professional_review"),
           priorityReviewRequested: priorityRequested,
           documentAnalysisUpgrades: chargeableDocumentAnalysisUpgrades,
         }, business.taxTreatment)
@@ -433,9 +483,59 @@ export async function POST(request: Request) {
           },
         })),
       );
-    const motivation = body.projectMotivation && typeof body.projectMotivation === "object" && !Array.isArray(body.projectMotivation)
-      ? body.projectMotivation as Record<string, unknown>
+    const motivation = parseProjectMotivation(body.projectMotivation);
+    const clientResearchRaw = body.clientResearch && typeof body.clientResearch === "object" && !Array.isArray(body.clientResearch)
+      ? body.clientResearch as Record<string, unknown>
       : {};
+    const clientResearch = {
+      urls: cleanList(clientResearchRaw.urls, 30, 2_000).filter((url) => {
+        try {
+          return ["http:", "https:"].includes(new URL(url).protocol);
+        } catch {
+          return false;
+        }
+      }),
+      notes: clean(clientResearchRaw.notes, 10_000),
+      evidenceStatus: "client_supplied_unverified",
+    };
+    const clientBrief = {
+      schemaVersion: "FRC_CLIENT_BRIEF_2026_01",
+      capturedAt: acceptedAt,
+      property: {
+        ownsProperty: body.ownsProperty === true,
+        clientSuppliedAddress: property.clientSuppliedAddress ?? null,
+        officialAddress: property.officialAddress ?? null,
+        clientSuppliedAreaSqm: property.clientSuppliedAreaSqm ?? null,
+        mappedAreaSqm: property.mappedAreaSqm ?? null,
+        parcelCount: property.parcelCount ?? 1,
+        lotDp: property.lotDp ?? null,
+        council: property.council ?? null,
+      },
+      context: {
+        customerType,
+        decisionObjective,
+      },
+      selectedReports: selectedReportIds.map((id) => {
+        const report = REPORT_BY_ID.get(id)!;
+        return { id, name: report.name, templateId: report.templateId };
+      }),
+      project: motivation,
+      plansAndDocuments: {
+        plansStatus: plansStatuses.has(clean(body.plansStatus, 40) as PlansStatus) ? clean(body.plansStatus, 40) : "none",
+        availableDocumentCategories,
+        uploadedDocumentIds: documents.map((document) => document.id),
+        documentAnalysisUpgrades: effectiveDocumentAnalysisUpgrades,
+      },
+      propertyResearch: {
+        status: property.propertyResearchStatus ?? "not_verified",
+        provider: property.propertyResearchProvider ?? null,
+        retrievedAt: property.propertyResearchRetrievedAt ?? null,
+        register: Array.isArray(property.researchRegister) ? property.researchRegister : [],
+        clientSuppliedLeads: clientResearch,
+      },
+      references: [...processedReferences, ...uploadedReferenceRecords],
+      notes: clean(body.notes, 5_000),
+    };
     order.client = client;
     order.property = property;
     order.scope = {
@@ -448,6 +548,7 @@ export async function POST(request: Request) {
       notes: clean(body.notes, 5_000),
       projectMotivation: motivation,
       referenceMaterials: [...processedReferences, ...uploadedReferenceRecords],
+      clientBrief,
     };
     order.priceSnapshot = priceSnapshot;
     order.pricingVersion = priceSnapshot.pricingVersion;

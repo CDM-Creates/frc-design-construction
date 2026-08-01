@@ -110,6 +110,7 @@ export type ReportOrder = {
     selectedReportIds?: string[];
     projectMotivation?: Record<string, unknown>;
     referenceMaterials?: Array<Record<string, unknown>>;
+    clientBrief?: Record<string, unknown>;
   };
   reportType: "preliminary_ai_assisted" | "frc_professionally_reviewed" | "council_readiness" | "tailored_quote";
   priceSnapshot: FrozenPriceSnapshot | FrozenCataloguePriceSnapshot | null;

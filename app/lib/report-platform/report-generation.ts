@@ -389,6 +389,7 @@ export async function runMockReportGeneration(
         selectedReportIds,
         projectMotivation: order.scope.projectMotivation ?? {},
         referenceMaterials: order.scope.referenceMaterials ?? [],
+        clientBrief: order.scope.clientBrief ?? {},
       },
       clientObjectives: order.scope.notes,
       selectedReportSections: template.sections.map((item) => item.key),
@@ -581,7 +582,7 @@ export async function runMockReportGeneration(
       job.completedAt = new Date().toISOString();
     }
     await repository.saveReportJob(job);
-    await sendInternalOrderNotification({ order, job, documents, conflicts: generationPackage.sourceConflicts });
+    await sendInternalOrderNotification({ order, job, documents, conflicts: generationPackage.sourceConflicts, report: finalReport });
     if (!order.professionalReviewRequired) {
       await sendClientReportReadyNotification({
         order,

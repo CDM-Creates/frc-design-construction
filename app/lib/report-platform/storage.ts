@@ -1,4 +1,4 @@
-import { getPlatformMode } from "./config";
+import { getPlatformDataBackend } from "./config";
 
 export type StoredPrivateFile = {
   storageReference: string;
@@ -93,12 +93,13 @@ class LocalPrivateStorageProvider implements PrivateStorageProvider {
   readonly name = "local-private-test-storage";
 
   async put(input: { orderId: string; documentId: string; file: File }) {
-    const [validated, fs, path] = await Promise.all([
+    const [validated, fs, os, path] = await Promise.all([
       validatePrivateFile(input.file),
       import("node:fs/promises"),
+      import("node:os"),
       import("node:path"),
     ]);
-    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || path.join(process.cwd(), ".frc-private-storage");
+    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "frc-private-storage") : path.join(process.cwd(), ".frc-private-storage"));
     const orderDirectory = path.resolve(root, input.orderId);
     const rootResolved = path.resolve(root);
     if (!orderDirectory.startsWith(`${rootResolved}${path.sep}`)) throw new Error("Unsafe private storage path.");
@@ -119,8 +120,8 @@ class LocalPrivateStorageProvider implements PrivateStorageProvider {
   async get(storageReference: string) {
     const match = /^local-private:\/\/([a-f0-9-]+)\/([^/]+)$/.exec(storageReference);
     if (!match) return null;
-    const [fs, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
-    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || path.join(process.cwd(), ".frc-private-storage");
+    const [fs, os, path] = await Promise.all([import("node:fs/promises"), import("node:os"), import("node:path")]);
+    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "frc-private-storage") : path.join(process.cwd(), ".frc-private-storage"));
     const absolutePath = path.resolve(root, match[1], match[2]);
     const rootResolved = path.resolve(root);
     if (!absolutePath.startsWith(`${rootResolved}${path.sep}`)) return null;
@@ -136,8 +137,8 @@ class LocalPrivateStorageProvider implements PrivateStorageProvider {
   async remove(storageReference: string) {
     const match = /^local-private:\/\/([a-f0-9-]+)\/([^/]+)$/.exec(storageReference);
     if (!match) return;
-    const [fs, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
-    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || path.join(process.cwd(), ".frc-private-storage");
+    const [fs, os, path] = await Promise.all([import("node:fs/promises"), import("node:os"), import("node:path")]);
+    const root = process.env.FRC_LOCAL_PRIVATE_STORAGE_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "frc-private-storage") : path.join(process.cwd(), ".frc-private-storage"));
     const absolutePath = path.resolve(root, match[1], match[2]);
     const rootResolved = path.resolve(root);
     if (!absolutePath.startsWith(`${rootResolved}${path.sep}`)) return;
@@ -236,8 +237,8 @@ class R2PrivateStorageProvider implements PrivateStorageProvider {
 let provider: PrivateStorageProvider | null = null;
 
 export function getPrivateStorageProvider() {
-  provider ??= getPlatformMode() === "test"
-    ? new LocalPrivateStorageProvider()
-    : new R2PrivateStorageProvider();
+  provider ??= getPlatformDataBackend() === "cloudflare"
+    ? new R2PrivateStorageProvider()
+    : new LocalPrivateStorageProvider();
   return provider;
 }

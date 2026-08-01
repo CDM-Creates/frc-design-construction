@@ -20,8 +20,8 @@ test("company and social details come from one editable configuration", () => {
   const config = read("app/config/site.ts");
   assert.match(config, /companyName: "FRC Design & Construction"/);
   assert.match(config, /leadArchitect: "Sheila Del Monte"/);
-  assert.match(config, /email: "sheila_delmonte@yahoo\.com"/);
-  assert.match(config, /emailLink: "mailto@yahoo\.com"/);
+  assert.match(config, /email: "frcdesignconstruction@gmail\.com"/);
+  assert.match(config, /emailLink: "mailto:frcdesignconstruction@gmail\.com"/);
   assert.match(config, /phoneLink: "tel:\+61420978236"/);
   assert.match(config, /instagram: null/);
   assert.match(config, /linkedIn: null/);
@@ -52,7 +52,7 @@ test("contact form validates through a server-side integration with honeypot pro
   assert.match(form, /required/);
   assert.match(route, /RESEND_API_KEY/);
   assert.match(route, /checkRateLimit/);
-  assert.match(route, /sheila_delmonte@yahoo\.com/);
+  assert.match(route, /frcdesignconstruction@gmail\.com/);
 });
 
 test("SEO discovery routes and the new social card are configured", () => {

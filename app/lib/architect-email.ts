@@ -18,7 +18,7 @@ const row = (label: string, value: unknown) => `<tr>
 
 export async function sendArchitectSimulationEmail(result: SimulationPackage, internalUrl: string) {
   const apiKey = process.env.RESEND_API_KEY;
-  const recipient = process.env.HEAD_ARCHITECT_EMAIL;
+  const recipient = process.env.HEAD_ARCHITECT_EMAIL || "frcdesignconstruction@gmail.com";
   const from = process.env.QUOTE_FROM_EMAIL || "FRC Website <onboarding@resend.dev>";
   if (!apiKey || !recipient) return { sent: false, reason: "Email delivery is not configured." };
   const project = result.project;

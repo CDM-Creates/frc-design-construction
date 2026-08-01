@@ -63,6 +63,7 @@ Keep these settings in local test mode:
 
 ```env
 FRC_PLATFORM_MODE=test
+FRC_DATA_BACKEND=node
 PAYMENT_PROVIDER=mock
 PAYMENTS_LIVE_ENABLED=false
 REPORT_AI_PROVIDER=mock
@@ -123,7 +124,7 @@ If an image fails, the written report still completes. If images are disabled, t
 
 ```env
 RESEND_API_KEY=re_...
-HEAD_ARCHITECT_EMAIL=head.architect@example.com
+HEAD_ARCHITECT_EMAIL=frcdesignconstruction@gmail.com
 QUOTE_FROM_EMAIL="FRC Website <quotes@your-verified-domain.com>"
 ```
 
@@ -150,7 +151,7 @@ Set a strong signing secret so uploaded documents are only available through exp
 FILE_SIGNING_SECRET=long-random-production-secret
 ```
 
-Local test mode uses isolated SQLite and filesystem storage. Hosted production uses the `DB` D1 and `PROJECT_FILES` R2 bindings and fails closed if either required binding is unavailable.
+`FRC_DATA_BACKEND` is independent from `FRC_PLATFORM_MODE`. Use `node` for local development or a Vercel compatibility/smoke deployment; it uses SQLite and private filesystem storage and carries a signed property-research proof across stateless requests. Node serverless storage is not a durable order or upload archive. Use `FRC_DATA_BACKEND=cloudflare` with the `DB` D1 and `PROJECT_FILES` R2 bindings before accepting live payments or relying on permanent client-document retention.
 
 ## Production checks
 

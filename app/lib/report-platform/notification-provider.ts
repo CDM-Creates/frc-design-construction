@@ -1,12 +1,17 @@
 import { getBusinessConfiguration, getPlatformMode } from "./config";
 import { getReportPlatformRepository } from "./repository";
-import type { DocumentRecord, NotificationRecord, ReportJob, ReportOrder } from "./types";
+import { renderStructuredReportPdf } from "./report-pack";
+import { REPORT_BY_ID } from "./report-catalogue";
+import { getPrivateStorageProvider } from "./storage";
+import type { DocumentRecord, FinalReportRecord, NotificationRecord, ReportJob, ReportOrder } from "./types";
 
 export type NotificationMessage = {
   type: string;
   recipient: string;
   subject: string;
   html: string;
+  replyTo?: string;
+  attachments?: Array<{ filename: string; content: string; contentType: string }>;
 };
 
 export interface NotificationProvider {
@@ -28,7 +33,43 @@ export class UnconfiguredNotificationProvider implements NotificationProvider {
   }
 }
 
+export class ResendNotificationProvider implements NotificationProvider {
+  readonly name = "resend";
+  async send(message: NotificationMessage) {
+    const apiKey = process.env.RESEND_API_KEY ?? "";
+    const from = process.env.QUOTE_FROM_EMAIL ?? "";
+    if (!apiKey || !from) return { sent: false, providerReference: null, failureReason: "Resend sender configuration is incomplete." };
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          to: [message.recipient],
+          reply_to: message.replyTo || undefined,
+          subject: message.subject,
+          html: message.html,
+          attachments: message.attachments?.map((attachment) => ({
+            filename: attachment.filename,
+            content: attachment.content,
+            content_type: attachment.contentType,
+          })),
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { id?: string; message?: string };
+      return response.ok
+        ? { sent: true, providerReference: result.id ?? null, failureReason: null }
+        : { sent: false, providerReference: null, failureReason: result.message ?? `Resend returned HTTP ${response.status}.` };
+    } catch (error) {
+      return { sent: false, providerReference: null, failureReason: error instanceof Error ? error.message : "Resend delivery failed." };
+    }
+  }
+}
+
 export function getNotificationProvider(): NotificationProvider {
+  const apiKey = process.env.RESEND_API_KEY ?? "";
+  const configured = /^re_[A-Za-z0-9_-]+$/.test(apiKey) && !apiKey.includes("your") && Boolean(process.env.QUOTE_FROM_EMAIL);
+  if (configured) return new ResendNotificationProvider();
   return getPlatformMode() === "test" ? new MockNotificationProvider() : new UnconfiguredNotificationProvider();
 }
 
@@ -67,6 +108,7 @@ export async function sendInternalOrderNotification(input: {
   job: ReportJob;
   documents: DocumentRecord[];
   conflicts: unknown[];
+  report: FinalReportRecord;
 }) {
   const business = getBusinessConfiguration();
   if (!business.headArchitectEmail) return null;
@@ -78,11 +120,46 @@ export async function sendInternalOrderNotification(input: {
       ? "[URGENT — REPORT SAFETY ESCALATION]"
       : "[NEW AI REPORT ORDER]";
   const property = String(input.order.property.clientSuppliedAddress ?? "Private property reference");
+  const selectedReports = (input.order.scope.selectedReportIds ?? []).map((id) => REPORT_BY_ID.get(id)?.name ?? id);
+  const generatedPdf = await renderStructuredReportPdf(input.report.structuredReport);
+  const attachments: NotificationMessage["attachments"] = [{
+    filename: `FRC-${input.order.id}-AI-report.pdf`,
+    content: Buffer.from(generatedPdf).toString("base64"),
+    contentType: "application/pdf",
+  }];
+  const storage = getPrivateStorageProvider();
+  let attachmentBytes = generatedPdf.byteLength;
+  const omittedFiles: string[] = [];
+  for (const document of input.documents) {
+    if (document.malwareScanStatus !== "clean") {
+      omittedFiles.push(`${document.originalFilename} (not attached: malware clearance unavailable)`);
+      continue;
+    }
+    const stored = await storage.get(document.storageReference);
+    if (!stored || attachments.length >= 11 || attachmentBytes + stored.bytes.byteLength > 20 * 1024 * 1024) {
+      omittedFiles.push(`${document.originalFilename} (not attached: unavailable or email-size limit)`);
+      continue;
+    }
+    attachments.push({
+      filename: document.safeFilename,
+      content: Buffer.from(stored.bytes).toString("base64"),
+      contentType: stored.contentType,
+    });
+    attachmentBytes += stored.bytes.byteLength;
+  }
+  const handover = escapeHtml(JSON.stringify(input.order.scope.clientBrief ?? {
+    projectMotivation: input.order.scope.projectMotivation,
+    references: input.order.scope.referenceMaterials,
+    notes: input.order.scope.notes,
+  }, null, 2));
+  const documentRows = input.documents.map((document) => `<li>${escapeHtml(document.originalFilename)} · ${escapeHtml(document.category)} · ${escapeHtml(document.status)} · malware ${escapeHtml(document.malwareScanStatus)}</li>`).join("");
   return recordAndSend(input.order, {
     type: input.conflicts.length ? "safety_escalation" : input.order.professionalReviewRequired ? "professional_review_order" : "ai_report_order",
     recipient: business.headArchitectEmail,
     subject: `${prefix} ${input.order.client.name || input.order.id} — ${property}`,
-    html: `<h1>${escapeHtml(prefix)}</h1><p>Order ${escapeHtml(input.order.id)} · Job ${escapeHtml(input.job.id)}</p><p>${escapeHtml(property)}</p><p>Payment: ${escapeHtml(input.order.paymentStatus)} · Documents: ${input.documents.length} · Professional review: ${input.order.professionalReviewRequired ? "required" : "not purchased"}</p>`,
+    replyTo: input.order.client.email,
+    attachments,
+    html: `<div style="font-family:Arial,sans-serif;color:#17221d"><h1>${escapeHtml(prefix)}</h1><p><b>Order:</b> ${escapeHtml(input.order.id)} · <b>Job:</b> ${escapeHtml(input.job.id)}</p><p><b>Client:</b> ${escapeHtml(input.order.client.name)} · ${escapeHtml(input.order.client.email)} · ${escapeHtml(input.order.client.phone)}</p><p><b>Property:</b> ${escapeHtml(property)}</p><p><b>Paid:</b> ${escapeHtml(input.order.paymentStatus)} · <b>Server total:</b> A$${escapeHtml(((input.order.priceSnapshot?.totalCents ?? 0) / 100).toLocaleString("en-AU"))}</p><h2>Requested reports</h2><ul>${selectedReports.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul><h2>Client documents</h2><ul>${documentRows || "<li>No client files supplied.</li>"}</ul>${omittedFiles.length ? `<p><b>Secure-file note:</b> ${escapeHtml(omittedFiles.join("; "))}. They remain in the private order register and were not emailed without malware clearance.</p>` : ""}<h2>Complete architect and AI handover</h2><pre style="white-space:pre-wrap;padding:16px;background:#f1f2ed;border:1px solid #ccd0c8">${handover}</pre><p>The generated AI report PDF is attached. Treat preliminary findings and unverified sources according to the report limitations.</p></div>`,
   });
 }
 

@@ -87,7 +87,7 @@ The platform persists:
 
 Unique payment event IDs and snapshot keys provide idempotency. Valid state transitions prevent browser-side status skipping. Verified mock payment creates a queued job and schedules generation after the response; the status page polls until generation, review or release reaches a terminal client-visible state.
 
-Local test mode uses ignored SQLite/private filesystem storage. Hosted mode uses D1 and the private `PROJECT_FILES` R2 binding.
+The Node adapter uses ignored SQLite/private filesystem storage and supports Vercel-compatible property checks with a signed, expiring research proof. Serverless Node filesystem storage is not durable. Live hosted mode must use `FRC_DATA_BACKEND=cloudflare`, D1 and the private `PROJECT_FILES` R2 binding (or a separately implemented durable database/private-storage adapter).
 
 ## Structured reports and mock AI
 

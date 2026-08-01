@@ -1,5 +1,6 @@
 import { getReportPlatformRepository } from "../../lib/report-platform/repository";
-import { tokenMatches } from "../../lib/report-platform/security";
+import { getPlatformDataBackend } from "../../lib/report-platform/config";
+import { createServerProof, hashAccessToken, tokenMatches } from "../../lib/report-platform/security";
 
 type ArcFeature = {
   attributes?: Record<string, unknown>;
@@ -34,6 +35,127 @@ const PLANNING_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/se
 const HAZARD_SERVICE = "https://mapprod3.environment.nsw.gov.au/arcgis/rest/services/ePlanning/Planning_Portal_Hazard/MapServer";
 const PROPERTY_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/12";
 const LOT_SERVICE = "https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Land_Parcel_Property_Theme/FeatureServer/8";
+
+function buildResearchRegister(input: {
+  address: string;
+  council: string;
+  retrievedAt: string;
+}) {
+  const publicDiscoveryQuery = encodeURIComponent(`"${input.address}" property planning development`);
+  const councilQuery = encodeURIComponent(`site:gov.au "${input.council}" DCP planning controls`);
+  return [
+    {
+      code: "NSW_PROPERTY_AND_PLANNING_MAPS",
+      label: "NSW property identity, cadastral parcel and planning maps",
+      status: "retrieved",
+      evidenceClass: "official_public_source",
+      access: "automated_public_service",
+      url: "https://www.planningportal.nsw.gov.au/spatialviewer/",
+      prerequisite: null,
+      note: "Source-labelled address, Lot/DP, mapped area, zoning, LEP, height, FSR, minimum lot size, heritage, bushfire and flood screening are retained with retrieval metadata.",
+      retrievedAt: input.retrievedAt,
+    },
+    {
+      code: "NSW_LEGISLATION",
+      label: "In-force NSW planning legislation, SEPP and LEP text",
+      status: "professional_review_required",
+      evidenceClass: "official_public_source",
+      access: "public_link_manual_clause_review",
+      url: "https://legislation.nsw.gov.au/",
+      prerequisite: "Confirm the instrument, clause and version applying on the report date.",
+      note: "The software retains source links; clause interpretation remains subject to professional review.",
+      retrievedAt: null,
+    },
+    {
+      code: "COUNCIL_DCP_AND_LOCAL_RECORDS",
+      label: `${input.council || "Local council"} DCP, policies and local property records`,
+      status: "professional_review_required",
+      evidenceClass: "official_council_source_when_opened",
+      access: "public_discovery_link",
+      url: `https://www.google.com/search?q=${councilQuery}`,
+      prerequisite: "Open the relevant council source and confirm its currency and property application.",
+      note: "Search is used only to discover the council's public page; search-result snippets are never treated as evidence.",
+      retrievedAt: null,
+    },
+    {
+      code: "SECTION_10_7_CERTIFICATE",
+      label: "Section 10.7 planning certificate",
+      status: "client_upload_or_order_required",
+      evidenceClass: "council_issued_document",
+      access: "login_and_paid_order",
+      url: "https://www.service.nsw.gov.au/transaction/apply-online-for-a-planning-certificate",
+      prerequisite: "Client/council application, login and payment, or upload an existing current certificate in stage 4.",
+      note: "FRC cannot lawfully manufacture or represent a web lookup as a council-issued certificate.",
+      retrievedAt: null,
+    },
+    {
+      code: "TITLE_DEPOSITED_PLAN_AND_INTERESTS",
+      label: "Current title, deposited plan and registered interests",
+      status: "client_upload_or_order_required",
+      evidenceClass: "nsw_lrs_record",
+      access: "approved_information_broker_or_lrs_fee",
+      url: "https://rg-guidelines.nswlrs.com.au/land_dealings/land_title_questions/when-did-nsw-lrs-stop-issuing-certificates-of-titl/",
+      prerequisite: "Purchase through NSW LRS/an approved information broker, or upload client-authorised copies.",
+      note: "Ownership, easements, covenants and restrictions are not inferred from public map layers.",
+      retrievedAt: null,
+    },
+    {
+      code: "REGISTERED_DETAIL_SURVEY",
+      label: "Registered detail and level survey",
+      status: "client_upload_or_consultant_required",
+      evidenceClass: "registered_surveyor_document",
+      access: "client_or_surveyor",
+      url: "https://www.bossi.nsw.gov.au/",
+      prerequisite: "Upload an existing survey or engage a registered surveyor.",
+      note: "Mapped parcel geometry and indicative dimensions are never relabelled as surveyed boundaries or levels.",
+      retrievedAt: null,
+    },
+    {
+      code: "BIODIVERSITY_VALUES",
+      label: "Biodiversity Values Map and Threshold Tool",
+      status: "manual_screening_available",
+      evidenceClass: "official_public_source",
+      access: "public_tool_project_footprint_required",
+      url: "https://www.environment.nsw.gov.au/topics/animals-and-plants/biodiversity-offsets-scheme/clear-and-develop-land/biodiversity-values-map-and-threshold-tool",
+      prerequisite: "A proposed development/clearing footprint is required for a threshold report.",
+      note: "Property screening alone does not establish the development footprint or final biodiversity assessment requirement.",
+      retrievedAt: null,
+    },
+    {
+      code: "EPA_CONTAMINATED_LAND",
+      label: "NSW EPA contaminated-land record of notices",
+      status: "manual_screening_available",
+      evidenceClass: "official_public_register",
+      access: "public_register",
+      url: "https://app.epa.nsw.gov.au/prclmapp/searchregister.aspx",
+      prerequisite: "Search the LGA/suburb and review the record limits.",
+      note: "No matching EPA notice is not proof that land is uncontaminated; Section 10.7 and site-history evidence remain relevant.",
+      retrievedAt: null,
+    },
+    {
+      code: "WATER_SEWER_AND_SERVICES",
+      label: "Water, sewer and utility service plans",
+      status: "client_upload_or_order_required",
+      evidenceClass: "utility_provider_document",
+      access: "provider_login_or_byda_request",
+      url: "https://www.sydneywater.com.au/plumbing-building-developing/building/sydney-water-tap-in.html",
+      prerequisite: "Order provider diagrams/prints or upload existing diagrams; use the applicable regional water authority outside Sydney Water's area.",
+      note: "Service routes are not confirmed from imagery or general web results. BYDA is also available at https://www.byda.com.au/.",
+      retrievedAt: null,
+    },
+    {
+      code: "PUBLIC_WEB_DISCOVERY",
+      label: "Public web discovery for the exact address",
+      status: "unverified_discovery_only",
+      evidenceClass: "unverified_public_web",
+      access: "public_search_link",
+      url: `https://www.google.com/search?q=${publicDiscoveryQuery}`,
+      prerequisite: "Save the original URL/PDF and verify the publisher, property identity, issue date and currency before reliance.",
+      note: "This can reveal public DA documents, sale material or consultant reports, but search snippets and third-party listings are not authoritative evidence.",
+      retrievedAt: null,
+    },
+  ];
+}
 
 const roadTypes: Record<string, string> = {
   st: "Street", street: "Street", rd: "Road", road: "Road", ave: "Avenue", avenue: "Avenue",
@@ -560,6 +682,7 @@ export async function POST(request: Request) {
       parcelPointCount: boundary.length,
     });
 
+    const researchRegister = buildResearchRegister({ address: fullAddress, council, retrievedAt: matchedAt });
     const analysis = {
       matchStatus: "matched",
       matchedAt,
@@ -698,6 +821,7 @@ export async function POST(request: Request) {
         { name: "Excavation depth", value: "Not a statewide mapped numeric control", status: "specialist" },
         { name: "Setbacks + landscaped area", value: "Confirm council DCP / CDC standards", status: "specialist" },
       ],
+      researchRegister,
       source: {
         planningPortal: "https://www.planningportal.nsw.gov.au/spatialviewer/#/find-a-property/address",
         cadastralLotLayer: LOT_SERVICE,
@@ -730,6 +854,7 @@ export async function POST(request: Request) {
       analysedAt: matchedAt,
     };
 
+    let propertyResearchProof: string | null = null;
     if (inputs.reportOrderId || inputs.reportAccessToken) {
       const reportOrderId = inputs.reportOrderId?.trim().slice(0, 80) ?? "";
       const reportAccessToken =
@@ -741,7 +866,10 @@ export async function POST(request: Request) {
         );
       }
       const repository = await getReportPlatformRepository();
-      const order = await repository.getOrder(reportOrderId);
+      let order = await repository.getOrder(reportOrderId);
+      if (!order && getPlatformDataBackend() === "node") {
+        order = await repository.createDraftOrder(await hashAccessToken(reportAccessToken), reportOrderId);
+      }
       if (!order || !(await tokenMatches(reportAccessToken, order.ownerHash))) {
         return Response.json(
           { error: "Property-research authorisation failed." },
@@ -785,6 +913,7 @@ export async function POST(request: Request) {
         controls: analysis.controls,
         planningFields: analysis.planningFields,
         constraints: analysis.constraints,
+        researchRegister: analysis.researchRegister,
         source: analysis.source,
       };
       order.updatedAt = matchedAt;
@@ -802,9 +931,15 @@ export async function POST(request: Request) {
         },
         createdAt: matchedAt,
       });
+      propertyResearchProof = await createServerProof({
+        orderId: order.id,
+        issuedAt: matchedAt,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        property: order.property,
+      });
     }
 
-    return Response.json(analysis);
+    return Response.json({ ...analysis, propertyResearchProof });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
     console.error("[site-analysis] Live property analysis failed", caught);

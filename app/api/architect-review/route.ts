@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     }
 
     const apiKey = process.env.RESEND_API_KEY;
-    const recipient = process.env.HEAD_ARCHITECT_EMAIL;
+    const recipient = process.env.HEAD_ARCHITECT_EMAIL || "frcdesignconstruction@gmail.com";
     const from = process.env.QUOTE_FROM_EMAIL || "FRC Website <onboarding@resend.dev>";
     if (!apiKey || !recipient) return Response.json({ ok: true, emailed: false, message: "Review request recorded. Email delivery is not configured." });
     const response = await fetch("https://api.resend.com/emails", {

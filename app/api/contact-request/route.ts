@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     if (!limit.allowed) return Response.json({ error: "Too many enquiries were submitted from this connection. Please try again later or contact Sheila directly." }, { status: 429 });
 
     const apiKey = process.env.RESEND_API_KEY;
-    const recipient = process.env.HEAD_ARCHITECT_EMAIL || "sheila_delmonte@yahoo.com";
+    const recipient = process.env.HEAD_ARCHITECT_EMAIL || "frcdesignconstruction@gmail.com";
     const from = process.env.QUOTE_FROM_EMAIL || "FRC Website <onboarding@resend.dev>";
     if (!apiKey) return Response.json({ error: "Secure email delivery is not configured yet. Please contact Sheila directly using the phone or email details on this page." }, { status: 503 });
 
