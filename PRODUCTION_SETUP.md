@@ -10,11 +10,11 @@ Create one Supabase project in the FRC business account. You do **not** need to 
 FRC_DATA_BACKEND=supabase
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_DATABASE_URL=postgresql://...transaction-pooler...
-SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_SECRET_KEY=sb_secret_...
 SUPABASE_STORAGE_BUCKET=frc-private-reports
 ```
 
-On the first server connection the app applies its idempotent schema automatically. It also creates a private Storage bucket if it is missing. The service-role key and database URL are server secrets and must never use a `NEXT_PUBLIC_` prefix.
+On the first server connection the app applies its idempotent schema automatically. It also creates a private Storage bucket if it is missing. The secret key and database URL are server secrets and must never use a `NEXT_PUBLIC_` prefix. `SUPABASE_SERVICE_ROLE_KEY` remains supported only as a legacy fallback.
 
 The database retains the order identity, client contact details, selected reports, frozen price/receipt basis, property-source register, client brief, evidence metadata, job state, report output and audit events. File bytes remain in private Storage rather than inside database rows.
 

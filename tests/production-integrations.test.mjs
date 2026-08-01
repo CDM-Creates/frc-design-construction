@@ -20,7 +20,7 @@ test("Supabase production persistence initializes without dashboard SQL", async 
   assert.match(storage, /class SupabasePrivateStorageProvider/);
   assert.match(storage, /public: false/);
   assert.match(environment, /SUPABASE_DATABASE_URL=/);
-  assert.match(environment, /SUPABASE_SERVICE_ROLE_KEY=/);
+  assert.match(environment, /SUPABASE_SECRET_KEY=/);
 });
 
 test("Vercel routes do not statically import the Cloudflare-only runtime", async () => {

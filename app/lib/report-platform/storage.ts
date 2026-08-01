@@ -237,11 +237,11 @@ class R2PrivateStorageProvider implements PrivateStorageProvider {
 
 function supabaseConfiguration() {
   const url = process.env.SUPABASE_URL?.trim().replace(/\/$/, "") ?? "";
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+  const serviceRoleKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim() ?? "";
   const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || "frc-private-reports";
   if (!/^https:\/\/.+\.supabase\.co$/i.test(url) || !serviceRoleKey) {
     throw new Error(
-      "Supabase private storage is not configured. Add SUPABASE_URL and the server-only SUPABASE_SERVICE_ROLE_KEY.",
+      "Supabase private storage is not configured. Add SUPABASE_URL and the server-only SUPABASE_SECRET_KEY.",
     );
   }
   if (!/^[a-z0-9][a-z0-9_-]{2,62}$/i.test(bucket)) {
