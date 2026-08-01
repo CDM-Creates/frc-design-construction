@@ -1,4 +1,5 @@
 import { getPlatformDataBackend } from "./config";
+import { getCloudflareRuntimeEnv } from "./cloudflare-runtime";
 
 export type StoredPrivateFile = {
   storageReference: string;
@@ -170,8 +171,8 @@ type R2BucketLike = {
 };
 
 async function getR2Bucket() {
-  const { env } = await import("cloudflare:workers");
-  const bucket = (env as unknown as { PROJECT_FILES?: R2BucketLike })
+  const env = await getCloudflareRuntimeEnv();
+  const bucket = (env as { PROJECT_FILES?: R2BucketLike })
     .PROJECT_FILES;
   if (!bucket) {
     throw new Error(
@@ -234,11 +235,133 @@ class R2PrivateStorageProvider implements PrivateStorageProvider {
   }
 }
 
+function supabaseConfiguration() {
+  const url = process.env.SUPABASE_URL?.trim().replace(/\/$/, "") ?? "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim() || "frc-private-reports";
+  if (!/^https:\/\/.+\.supabase\.co$/i.test(url) || !serviceRoleKey) {
+    throw new Error(
+      "Supabase private storage is not configured. Add SUPABASE_URL and the server-only SUPABASE_SERVICE_ROLE_KEY.",
+    );
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{2,62}$/i.test(bucket)) {
+    throw new Error("SUPABASE_STORAGE_BUCKET contains unsupported characters.");
+  }
+  return { url, serviceRoleKey, bucket };
+}
+
+function supabaseHeaders(serviceRoleKey: string, extra: HeadersInit = {}) {
+  return new Headers({
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    ...Object.fromEntries(new Headers(extra).entries()),
+  });
+}
+
+let supabaseBucketPromise: Promise<void> | null = null;
+
+async function ensureSupabasePrivateBucket() {
+  supabaseBucketPromise ??= (async () => {
+    const { url, serviceRoleKey, bucket } = supabaseConfiguration();
+    const lookup = await fetch(`${url}/storage/v1/bucket/${encodeURIComponent(bucket)}`, {
+      headers: supabaseHeaders(serviceRoleKey),
+      cache: "no-store",
+    });
+    if (lookup.ok) return;
+    if (lookup.status !== 404) {
+      throw new Error(`Supabase Storage could not verify the private bucket (${lookup.status}).`);
+    }
+    const created = await fetch(`${url}/storage/v1/bucket`, {
+      method: "POST",
+      headers: supabaseHeaders(serviceRoleKey, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ id: bucket, name: bucket, public: false }),
+    });
+    if (!created.ok && created.status !== 409) {
+      throw new Error(`Supabase Storage could not create the private bucket (${created.status}).`);
+    }
+  })().catch((error) => {
+    supabaseBucketPromise = null;
+    throw error;
+  });
+  return supabaseBucketPromise;
+}
+
+function encodeStorageKey(key: string) {
+  return key.split("/").map(encodeURIComponent).join("/");
+}
+
+class SupabasePrivateStorageProvider implements PrivateStorageProvider {
+  readonly name = "supabase-private-storage";
+
+  async put(input: { orderId: string; documentId: string; file: File }) {
+    const validated = await validatePrivateFile(input.file);
+    await ensureSupabasePrivateBucket();
+    const { url, serviceRoleKey, bucket } = supabaseConfiguration();
+    const key = `orders/${input.orderId}/documents/${input.documentId}/${validated.safeFilename}`;
+    const response = await fetch(
+      `${url}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStorageKey(key)}`,
+      {
+        method: "POST",
+        headers: supabaseHeaders(serviceRoleKey, {
+          "Content-Type": validated.detectedMimeType,
+          "x-upsert": "false",
+        }),
+        body: validated.bytes,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`The private Supabase upload failed (${response.status}).`);
+    }
+    return {
+      storageReference: `supabase-private://${bucket}/${key}`,
+      sha256: validated.sha256,
+      safeFilename: validated.safeFilename,
+      detectedMimeType: validated.detectedMimeType,
+      automatedInterpretationEligible: validated.automatedInterpretationEligible,
+    };
+  }
+
+  async get(storageReference: string) {
+    const match = /^supabase-private:\/\/([a-z0-9][a-z0-9_-]{2,62})\/(orders\/[a-f0-9-]+\/documents\/[a-f0-9-]+\/[^/]+)$/i.exec(storageReference);
+    if (!match) return null;
+    const { url, serviceRoleKey, bucket } = supabaseConfiguration();
+    if (match[1] !== bucket) return null;
+    const response = await fetch(
+      `${url}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStorageKey(match[2])}`,
+      { headers: supabaseHeaders(serviceRoleKey), cache: "no-store" },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`The private Supabase file could not be read (${response.status}).`);
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      contentType: response.headers.get("content-type") ?? "application/octet-stream",
+      filename: decodeURIComponent(match[2].split("/").at(-1) ?? "document"),
+    };
+  }
+
+  async remove(storageReference: string) {
+    const match = /^supabase-private:\/\/([a-z0-9][a-z0-9_-]{2,62})\/(orders\/[a-f0-9-]+\/documents\/[a-f0-9-]+\/[^/]+)$/i.exec(storageReference);
+    if (!match) return;
+    const { url, serviceRoleKey, bucket } = supabaseConfiguration();
+    if (match[1] !== bucket) return;
+    const response = await fetch(
+      `${url}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStorageKey(match[2])}`,
+      { method: "DELETE", headers: supabaseHeaders(serviceRoleKey) },
+    );
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`The private Supabase file could not be removed (${response.status}).`);
+    }
+  }
+}
+
 let provider: PrivateStorageProvider | null = null;
 
 export function getPrivateStorageProvider() {
-  provider ??= getPlatformDataBackend() === "cloudflare"
+  const backend = getPlatformDataBackend();
+  provider ??= backend === "cloudflare"
     ? new R2PrivateStorageProvider()
-    : new LocalPrivateStorageProvider();
+    : backend === "supabase"
+      ? new SupabasePrivateStorageProvider()
+      : new LocalPrivateStorageProvider();
   return provider;
 }

@@ -150,7 +150,7 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     answers: "What is known about this property, and what still needs confirmation?",
     includes: ["Property identity", "Land area and boundary status", "Planning framework", "Mapped constraint screening", "Source register", "Missing-information schedule", "Risk register", "Action plan"],
     excludes: ["A design proposal", "Approval advice", "Registered survey", "Engineering assessment"],
-    requiredInputs: ["NSW property address", "Client decision context"],
+    requiredInputs: ["Australian property address", "Client decision context"],
     referencesRequired: false,
     drawingsRequired: false,
     professionalReview: "optional",

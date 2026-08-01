@@ -1,5 +1,7 @@
 import { getPlatformDataBackend, getPlatformMode } from "./config";
 import { assertOrderTransition } from "./status-transitions";
+import { SUPABASE_REPORT_SCHEMA_STATEMENTS } from "./supabase-schema";
+import { getCloudflareRuntimeEnv } from "./cloudflare-runtime";
 import type { ReportDispute } from "./disputes";
 import type {
   DocumentRecord,
@@ -390,7 +392,7 @@ class LocalSqliteReportPlatformRepository implements ReportPlatformRepository {
   }
 
   async getReportSections(jobId: string) {
-    return (await this.db.prepare("SELECT structured_content_json FROM report_sections WHERE job_id = ? ORDER BY rowid ASC").all(jobId))
+    return (await this.db.prepare("SELECT structured_content_json FROM report_sections WHERE job_id = ? ORDER BY section_code ASC, revision_number ASC").all(jobId))
       .map((row) => parse((row as Row).structured_content_json, null as StructuredReportSection | null))
       .filter((section): section is StructuredReportSection => Boolean(section));
   }
@@ -525,6 +527,47 @@ class D1SqlDatabase implements SqlDatabase {
   }
 }
 
+type PostgresClientLike = {
+  unsafe<T extends Row[] = Row[]>(sql: string, parameters?: readonly unknown[]): Promise<T>;
+};
+
+function postgresPlaceholders(sql: string) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+class PostgresSqlStatement implements SqlStatement {
+  constructor(
+    private readonly client: PostgresClientLike,
+    private readonly sql: string,
+  ) {}
+
+  async run(...values: unknown[]) {
+    await this.client.unsafe(postgresPlaceholders(this.sql), values);
+  }
+
+  async get(...values: unknown[]) {
+    const rows = await this.client.unsafe(postgresPlaceholders(this.sql), values);
+    return rows[0];
+  }
+
+  async all(...values: unknown[]) {
+    return await this.client.unsafe(postgresPlaceholders(this.sql), values);
+  }
+}
+
+class PostgresSqlDatabase implements SqlDatabase {
+  constructor(private readonly client: PostgresClientLike) {}
+
+  exec() {
+    throw new Error("Use prepared PostgreSQL statements for runtime database access.");
+  }
+
+  prepare(sql: string) {
+    return new PostgresSqlStatement(this.client, sql);
+  }
+}
+
 async function initialiseLocalRepository(): Promise<ReportPlatformRepository> {
   const [{ DatabaseSync }, fs, os, path] = await Promise.all([
     import("node:sqlite"),
@@ -621,8 +664,8 @@ async function initialiseLocalRepository(): Promise<ReportPlatformRepository> {
 }
 
 async function initialiseD1Repository(): Promise<ReportPlatformRepository> {
-  const { env } = await import("cloudflare:workers");
-  const database = (env as unknown as { DB?: D1DatabaseLike }).DB;
+  const env = await getCloudflareRuntimeEnv();
+  const database = (env as { DB?: D1DatabaseLike }).DB;
   if (!database) {
     throw new Error(
       "Cloudflare D1 binding `DB` is unavailable. Keep `.openai/hosting.json` configured with the `DB` binding.",
@@ -631,9 +674,32 @@ async function initialiseD1Repository(): Promise<ReportPlatformRepository> {
   return new LocalSqliteReportPlatformRepository(new D1SqlDatabase(database));
 }
 
+async function initialiseSupabaseRepository(): Promise<ReportPlatformRepository> {
+  const connectionString = process.env.SUPABASE_DATABASE_URL?.trim() ?? "";
+  if (!/^postgres(?:ql)?:\/\//i.test(connectionString)) {
+    throw new Error(
+      "SUPABASE_DATABASE_URL is missing. Add the Supabase transaction-pooler connection string to the server environment.",
+    );
+  }
+  const { default: postgres } = await import("postgres");
+  const client = postgres(connectionString, {
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 15,
+    prepare: false,
+  }) as unknown as PostgresClientLike;
+  for (const statement of SUPABASE_REPORT_SCHEMA_STATEMENTS) {
+    await client.unsafe(statement);
+  }
+  return new LocalSqliteReportPlatformRepository(new PostgresSqlDatabase(client));
+}
+
 export async function getReportPlatformRepository() {
-  repositoryPromise ??= getPlatformDataBackend() === "cloudflare"
+  const backend = getPlatformDataBackend();
+  repositoryPromise ??= backend === "cloudflare"
     ? initialiseD1Repository()
-    : initialiseLocalRepository();
+    : backend === "supabase"
+      ? initialiseSupabaseRepository()
+      : initialiseLocalRepository();
   return repositoryPromise;
 }

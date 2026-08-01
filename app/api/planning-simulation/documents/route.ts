@@ -4,11 +4,16 @@ import { getReportPlatformRepository } from "../../../lib/report-platform/reposi
 import { getPrivateStorageProvider, MAX_BYTES_PER_ORDER, MAX_FILES_PER_DOCUMENT_CATEGORY } from "../../../lib/report-platform/storage";
 import { tokenMatches } from "../../../lib/report-platform/security";
 import type { DocumentRecord } from "../../../lib/report-platform/types";
+import { assessUploadedDocument, documentAiIsRequired } from "../../../lib/report-platform/document-ai";
+import { getMalwareScanner } from "../../../lib/report-platform/malware";
 
 const text = (value: FormDataEntryValue | null, max: number) =>
   typeof value === "string" ? value.trim().slice(0, max) || null : null;
 
 function safeDocument(document: DocumentRecord) {
+  const intakeAssessment = document.extractedFacts.find(
+    (fact) => fact && typeof fact === "object" && (fact as { schemaVersion?: unknown }).schemaVersion === "FRC_DOCUMENT_INTAKE_V1",
+  ) ?? null;
   return {
     id: document.id,
     category: document.category,
@@ -24,6 +29,8 @@ function safeDocument(document: DocumentRecord) {
     status: document.status,
     malwareScanStatus: document.malwareScanStatus,
     automatedInterpretationEligible: document.automatedInterpretationEligible,
+    intakeAssessment,
+    validationAccepted: !documentAiIsRequired() || ["validated", "processed", "requires_professional_review"].includes(document.status),
   };
 }
 
@@ -96,6 +103,42 @@ export async function POST(request: Request) {
     const storage = getPrivateStorageProvider();
     const stored = await storage.put({ orderId, documentId, file });
     const uploadedAt = new Date().toISOString();
+    const scan = await getMalwareScanner().scan({
+      storageReference: stored.storageReference,
+      sha256: stored.sha256,
+      mimeType: stored.detectedMimeType,
+    });
+    if (scan.status === "rejected") {
+      await storage.remove(stored.storageReference);
+      throw new Error(`${file.name}: the file failed security screening and was not retained.`);
+    }
+    let assessment = null;
+    let assessmentError = "";
+    if (scan.status === "clean" && stored.automatedInterpretationEligible) {
+      try {
+        assessment = await assessUploadedDocument({
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          mimeType: stored.detectedMimeType,
+          filename: stored.safeFilename,
+          category,
+          propertyAddress: text(form.get("propertyAddress"), 500) ?? String(order.property.clientSuppliedAddress ?? order.property.officialAddress ?? ""),
+          selectedReportIds: (text(form.get("selectedReportIds"), 1_000) ?? "").split(",").map((id) => id.trim()).filter(Boolean).slice(0, 20),
+        });
+      } catch (error) {
+        assessmentError = error instanceof Error ? error.message : "Document AI validation failed.";
+      }
+    }
+    const acceptedAssessment = assessment?.result === "relevant";
+    const rejectedAssessment = assessment && ["wrong_category", "property_mismatch", "unreadable"].includes(assessment.result);
+    const documentStatus: DocumentRecord["status"] = rejectedAssessment
+      ? "rejected_irrelevant"
+      : acceptedAssessment
+        ? "validated"
+        : assessment?.result === "uncertain"
+          ? "requires_professional_review"
+          : documentAiIsRequired()
+            ? "validation_pending"
+            : "uploaded_unprocessed";
     const document: DocumentRecord = {
       id: documentId,
       orderId,
@@ -112,16 +155,16 @@ export async function POST(request: Request) {
       revision: text(form.get("revision"), 80),
       clientNote: text(form.get("clientNote"), 1000),
       uploadedAt,
-      status: "uploaded_unprocessed",
-      extractionProvider: null,
-      extractionModel: null,
-      extractionSchemaVersion: null,
-      extractedFacts: [],
+      status: documentStatus,
+      extractionProvider: assessment?.provider ?? null,
+      extractionModel: assessment?.model ?? null,
+      extractionSchemaVersion: assessment?.schemaVersion ?? null,
+      extractedFacts: assessment ? [assessment] : assessmentError ? [{ schemaVersion: "FRC_DOCUMENT_INTAKE_ERROR_V1", message: assessmentError }] : [],
       sourceCitations: [],
       detectedConflicts: [],
-      professionalReviewStatus: "not_required",
+      professionalReviewStatus: assessment?.result === "uncertain" ? "pending" : "not_required",
       supersededDocumentId: null,
-      malwareScanStatus: "not_scanned",
+      malwareScanStatus: scan.status,
       automatedInterpretationEligible: stored.automatedInterpretationEligible,
     };
     try {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  COUNCIL_READINESS_REQUIRED_DOCUMENTS,
   DOCUMENT_CATEGORIES,
 } from "../lib/planning-simulation/document-categories";
 import type {
@@ -60,6 +61,10 @@ const PLAN_OPTIONS: Array<{ value: PlansStatus; title: string; body: string }> =
 ];
 
 type PropertyAnalysis = {
+  matchStatus?: string;
+  jurisdiction?: string;
+  jurisdictionName?: string;
+  notice?: string;
   matchedAddress?: string;
   council?: string;
   lotDp?: string | null;
@@ -85,16 +90,16 @@ type PropertyAnalysis = {
   siteDimensions?: Record<string, unknown>;
   constraints?: Array<Record<string, unknown>>;
   analysedAt?: string;
-  researchRegister?: Array<{
-    code: string;
-    label: string;
-    status: string;
-    evidenceClass: string;
-    access: string;
-    url: string;
-    prerequisite: string | null;
-    note: string;
-    retrievedAt: string | null;
+  researchRegister?: Array<Record<string, unknown> & {
+    code?: string;
+    label?: string;
+    status?: string;
+    evidenceClass?: string;
+    access?: string;
+    url?: string;
+    prerequisite?: string | null;
+    note?: string;
+    retrievedAt?: string | null;
   }>;
   propertyResearchProof?: string | null;
 };
@@ -440,7 +445,7 @@ export function PlanningSimulationWizard() {
   const validateCurrentStep = (
     uploadedDocuments: WizardState["uploadedDocuments"] = state.uploadedDocuments,
   ) => {
-    if (state.step === 0 && !state.address.trim()) return "Enter the full NSW property address to continue.";
+    if (state.step === 0 && !state.address.trim()) return "Enter the full Australian property address to continue.";
     if (
       state.step === 0 &&
       (!state.propertyAnalysis ||
@@ -448,7 +453,7 @@ export function PlanningSimulationWizard() {
         !state.draftOrderId ||
         state.propertyResearchOrderId !== state.draftOrderId)
     ) {
-      return "Check the property against the official NSW sources before continuing.";
+      return "Check the property against the correct official state or territory sources before continuing.";
     }
     if (state.step === 1 && (!state.customerType || !state.decisionObjective)) return "Choose which customer type best describes you and what you are trying to understand.";
     if (state.step === 2 && !state.selectedReportIds.length) return "Select at least one complete report.";
@@ -490,7 +495,26 @@ export function PlanningSimulationWizard() {
         state.availableDocumentCategories,
         uploadedDocuments,
       );
-      if (awaiting.length) return "You marked this document as available. Upload at least one file or untick the document.";
+      if (awaiting.length) {
+        const labels = awaiting.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
+        return `Upload or untick: ${labels.join(", ")}.`;
+      }
+      const rejected = state.availableDocumentCategories.filter(
+        (category) => !(uploadedDocuments[category] ?? []).some((document) => document.validationAccepted),
+      );
+      if (rejected.length) {
+        const labels = rejected.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
+        return `The document check has not accepted: ${labels.join(", ")}. Remove the wrong file and upload matching project evidence, or wait for professional review.`;
+      }
+      if (state.selectedReportIds.includes("council_readiness")) {
+        const missing = COUNCIL_READINESS_REQUIRED_DOCUMENTS.filter(
+          (category) => !(uploadedDocuments[category] ?? []).some((document) => document.validationAccepted),
+        );
+        if (missing.length) {
+          const labels = missing.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
+          return `Council Readiness cannot continue yet. Upload the required evidence: ${labels.join(", ")}. These official or professional documents cannot be replaced by AI.`;
+        }
+      }
     }
     return "";
   };
@@ -518,7 +542,7 @@ export function PlanningSimulationWizard() {
   };
 
   const checkProperty = async () => {
-    if (!state.address.trim()) return setPropertyError("Enter the full NSW property address first.");
+    if (!state.address.trim()) return setPropertyError("Enter the full Australian property address, including state and postcode, first.");
     setPropertyStatus("loading");
     setPropertyError("");
     try {
@@ -708,19 +732,19 @@ export function PlanningSimulationWizard() {
 
   const renderPropertyStep = () => (
     <section className="planning-step" aria-labelledby="property-step-title">
-      <header><span>01 · Property</span><h2 id="property-step-title">Planning intelligence before you commit to full documentation.</h2><p>Start with one NSW property. Official mapping remains separate from client-supplied information.</p></header>
+      <header><span>01 · Property</span><h2 id="property-step-title">Planning intelligence before you commit to full documentation.</h2><p>Start with one Australian property. Official state or territory sources remain separate from client-supplied information.</p></header>
       <div className="planning-fields">
-        <label className="wide"><span>Full NSW property address</span><input value={state.address} onChange={(event) => {
+        <label className="wide"><span>Full Australian property address</span><input value={state.address} onChange={(event) => {
           update({ address: event.target.value, propertyAnalysis: null, propertyResearchOrderId: "" });
           setPropertyStatus("idle");
           setPropertyError("");
-        }} placeholder="Enter street number, street, suburb, NSW and postcode" autoComplete="street-address" /></label>
+        }} placeholder="Enter street number, street, suburb, state and postcode" autoComplete="street-address" /></label>
         <label><span>Approximate land area (optional)</span><div className="planning-unit"><input inputMode="decimal" value={state.clientSuppliedLandAreaSqm} onChange={(event) => update({ clientSuppliedLandAreaSqm: event.target.value })} placeholder="550" /><b>m²</b></div><small>Recorded as client supplied, not official or surveyed.</small></label>
         <label><span>Number of properties</span><select value={state.propertyCount} onChange={(event) => update({ propertyCount: Number(event.target.value) })}><option value={1}>One property</option><option value={2}>Two adjoining properties or lots</option></select><small>Each additional property adds a fixed research amount shown at stage 6.</small></label>
       </div>
       <label className="planning-inline-check"><input type="checkbox" checked={state.ownsProperty} onChange={(event) => update({ ownsProperty: event.target.checked })} /><span>I currently own this property</span></label>
-      <button type="button" className="planning-secondary-action" onClick={checkProperty} disabled={propertyStatus === "loading"}>{propertyStatus === "loading" ? "Checking official NSW sources…" : "Check this NSW property"} <span>↗</span></button>
-      {state.propertyAnalysis && <article className="property-match-card"><div><span>Official source retrieved</span><strong>{state.propertyAnalysis.matchedAddress ?? state.address}</strong></div><dl><div><dt>Council</dt><dd>{state.propertyAnalysis.council ?? "Not returned"}</dd></div><div><dt>Lot / DP</dt><dd>{state.propertyAnalysis.lotDp ?? "Not returned"}</dd></div><div><dt>Mapped area</dt><dd>{state.propertyAnalysis.mappedParcelAreaSqm ? `${state.propertyAnalysis.mappedParcelAreaSqm} m²` : "Not returned"}</dd></div></dl></article>}
+      <button type="button" className="planning-secondary-action" onClick={checkProperty} disabled={propertyStatus === "loading"}>{propertyStatus === "loading" ? "Checking official planning sources…" : "Check this Australian property"} <span>↗</span></button>
+      {state.propertyAnalysis && <article className="property-match-card"><div><span>{state.propertyAnalysis.matchStatus === "official_source_routed" ? `Official ${state.propertyAnalysis.jurisdiction ?? "Australian"} source pathway identified` : "Official property source retrieved"}</span><strong>{state.propertyAnalysis.matchedAddress ?? state.address}</strong>{state.propertyAnalysis.notice && <small>{state.propertyAnalysis.notice}</small>}</div><dl><div><dt>Council</dt><dd>{state.propertyAnalysis.council ?? "Requires source retrieval"}</dd></div><div><dt>Lot / plan</dt><dd>{state.propertyAnalysis.lotDp ?? "Requires source retrieval"}</dd></div><div><dt>Mapped area</dt><dd>{state.propertyAnalysis.mappedParcelAreaSqm ? `${state.propertyAnalysis.mappedParcelAreaSqm} m²` : "Requires source retrieval"}</dd></div></dl></article>}
       {propertyError && <div className="planning-alert error"><strong>Property check incomplete</strong><p>{propertyError}</p></div>}
     </section>
   );
@@ -815,7 +839,8 @@ export function PlanningSimulationWizard() {
 
   const renderDocumentsStep = () => (
     <section className="planning-step" aria-labelledby="documents-step-title">
-      <header><span>04 · Plans and documents</span><h2 id="documents-step-title">Use what you already have.</h2><p>Already have a survey, certificate or drawing set? Upload it once. We use it as evidence rather than asking you to recreate the same information.</p></header>
+      <header><span>04 · Plans and documents</span><h2 id="documents-step-title">Use what you already have.</h2><p>Already have a survey, certificate or drawing set? Upload it once. Security screening and AI relevance checking begin automatically when configured; the file remains evidence and is never treated as instructions.</p></header>
+      {state.selectedReportIds.includes("council_readiness") && <div className="planning-alert"><strong>Council Readiness has mandatory evidence prerequisites.</strong><p>Before continuing, upload accepted copies of: {COUNCIL_READINESS_REQUIRED_DOCUMENTS.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code).join(", ")}. A selected feasibility or plan-compliance report satisfies the report dependency; it cannot replace these issued or professionally prepared documents.</p></div>}
         <div className="planning-choice-grid two">{PLAN_OPTIONS.map((option) => <label className={`planning-choice ${state.plansStatus === option.value ? "selected" : ""}`} key={option.value}><input type="radio" name="plans-status" checked={state.plansStatus === option.value} onChange={() => update({ plansStatus: option.value })} /><span className="choice-check">✓</span><strong>{option.title}</strong><small>{option.body}</small></label>)}</div>
       <div className="document-checklist expanded">
         <header><span>Document availability and secure upload</span><p>Every checked row opens its own upload panel. A checked row without a successful upload blocks progress.</p></header>
@@ -867,6 +892,8 @@ export function PlanningSimulationWizard() {
                 update({ documentAnalysisUpgrades: checked ? [...new Set([...state.documentAnalysisUpgrades, document.premiumUpgradeCode])] : state.documentAnalysisUpgrades.filter((code) => code !== document.premiumUpgradeCode) });
               }}
               ensureDraft={ensureDraft}
+              propertyAddress={state.address}
+              selectedReportIds={state.selectedReportIds}
               onUploaded={(uploaded) => {
                 const category = uploaded.category as DocumentCategoryCode;
                 setState((current) => ({
@@ -897,6 +924,7 @@ export function PlanningSimulationWizard() {
     const uploaded = (code: DocumentCategoryCode) => Boolean(state.uploadedDocuments[code]?.length);
     const officialFieldStatus = (field?: { status?: string }) => {
       if (!state.propertyAnalysis || !field) return "Not connected";
+      if (state.propertyAnalysis.matchStatus === "official_source_routed") return "Requires property-specific retrieval";
       if (field.status === "mapped") return "Retrieved";
       if (["conflict_detected", "requires_verification"].includes(field.status ?? "")) {
         return "Requires professional review";
@@ -908,12 +936,12 @@ export function PlanningSimulationWizard() {
       return "Not connected";
     };
     const rows = [
-      ["Official address", state.propertyAnalysis ? "Retrieved" : "Not connected"],
+      ["Property address", state.propertyAnalysis ? state.propertyAnalysis.matchStatus === "official_source_routed" ? "Client address recorded" : "Retrieved" : "Not connected"],
       ["Lot and DP", officialFieldStatus(fields.lotDp)],
       ["Indicative mapped area", officialFieldStatus(fields.parcelArea)],
       ["Council", officialFieldStatus(fields.council)],
       ["Zoning", officialFieldStatus(fields.zone)],
-      ["LEP", fields.zone?.status === "mapped" && state.propertyAnalysis?.controls?.lep && state.propertyAnalysis.controls.lep !== "Not mapped" ? "Retrieved" : officialFieldStatus(fields.zone)],
+      [state.propertyAnalysis?.jurisdiction === "NSW" || !state.propertyAnalysis?.jurisdiction ? "LEP" : "Planning scheme or code", fields.zone?.status === "mapped" && state.propertyAnalysis?.controls?.lep && state.propertyAnalysis.controls.lep !== "Not mapped" ? "Retrieved" : officialFieldStatus(fields.zone)],
       ["Building height", officialFieldStatus(fields.height)],
       ["Floor-space ratio", officialFieldStatus(fields.fsr)],
       ["Heritage screening", officialFieldStatus(fields.heritage)],
@@ -922,7 +950,7 @@ export function PlanningSimulationWizard() {
       ["Council DCP", "Requires professional review"],
       ["Title and deposited plan", uploaded("title_and_deposited_plan") ? "Uploaded" : "Not connected"],
       ["Registered survey", uploaded("registered_detail_survey") ? "Uploaded" : "Not connected"],
-      ["Section 10.7 certificate", uploaded("section_10_7_certificate") ? "Uploaded" : "Requires ordering"],
+      ["Statutory planning/property certificate", uploaded("section_10_7_certificate") ? "Uploaded" : "Requires ordering"],
     ];
     const researchUploadCategory: Partial<Record<string, DocumentCategoryCode>> = {
       SECTION_10_7_CERTIFICATE: "section_10_7_certificate",
@@ -932,21 +960,28 @@ export function PlanningSimulationWizard() {
     };
     return <section className="planning-step" aria-labelledby="scan-step-title">
       <header><span>05 · Property information scan</span><h2 id="scan-step-title">See what is known — and what remains required.</h2><p>Unavailable information stays unverified. A failed lookup is never interpreted as “no constraint”.</p></header>
-      {!state.propertyAnalysis && <div className="planning-alert"><strong>No completed official property match.</strong><p>Complete the official NSW property check before ordering a report.</p><button type="button" onClick={() => setStep(0)}>Return to property</button></div>}
+      {!state.propertyAnalysis && <div className="planning-alert"><strong>No completed property-source check.</strong><p>Complete the official state or territory source check before ordering a report.</p><button type="button" onClick={() => setStep(0)}>Return to property</button></div>}
       <div className="source-status-list">{rows.map(([label, status]) => <div key={label}><span>{label}</span><b className={status.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}>{status}</b></div>)}</div>
       {discoveredConstraints.length > 0 && <div className="planning-alert warning"><strong>Mapped constraint flags need review.</strong><p>{discoveredConstraints.map((item) => item.label).join(", ")}. Screening does not replace specialist assessment.</p></div>}
       <div className="property-research-register">
         <header><span>Research and evidence register</span><p>Connected sources are retained automatically. Restricted or paid records stay clearly marked until the client uploads or orders them.</p></header>
         {(state.propertyAnalysis?.researchRegister ?? []).map((resource) => {
-          const uploadCategory = researchUploadCategory[resource.code];
+          const resourceCode = String(resource.code ?? resource.id ?? resource.label ?? resource.title ?? "research-resource");
+          const resourceLabel = String(resource.label ?? resource.title ?? "Property research source");
+          const evidenceClass = String(resource.evidenceClass ?? resource.sourceType ?? "unverified_source");
+          const access = String(resource.access ?? "source_path_identified");
+          const status = String(resource.status ?? "unavailable");
+          const note = String(resource.note ?? resource.limitations ?? "Property-specific result requires confirmation.");
+          const url = String(resource.url ?? resource.sourceUrl ?? "");
+          const uploadCategory = researchUploadCategory[resourceCode];
           const suppliedCount = uploadCategory ? state.uploadedDocuments[uploadCategory]?.length ?? 0 : 0;
-          const effectiveStatus = suppliedCount ? `uploaded_${suppliedCount}_client_document${suppliedCount === 1 ? "" : "s"}` : resource.status;
-          return <article key={resource.code}>
-          <div><strong>{resource.label}</strong><small>{resource.evidenceClass.replaceAll("_", " ")} · {resource.access.replaceAll("_", " ")}</small></div>
+          const effectiveStatus = suppliedCount ? `uploaded_${suppliedCount}_client_document${suppliedCount === 1 ? "" : "s"}` : status;
+          return <article key={resourceCode}>
+          <div><strong>{resourceLabel}</strong><small>{evidenceClass.replaceAll("_", " ")} · {access.replaceAll("_", " ")}</small></div>
           <b className={effectiveStatus.replaceAll("_", "-")}>{effectiveStatus.replaceAll("_", " ")}</b>
-          <p>{resource.note}</p>
+          <p>{note}</p>
           {resource.prerequisite && <p><em>Required first:</em> {resource.prerequisite}</p>}
-          <a href={resource.url} target="_blank" rel="noreferrer">Open source or order pathway <span>↗</span></a>
+          {url && <a href={url} target="_blank" rel="noreferrer">Open source or order pathway <span>↗</span></a>}
         </article>})}
       </div>
       <div className="client-research-panel">

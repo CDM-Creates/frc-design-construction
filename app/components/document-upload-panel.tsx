@@ -18,6 +18,13 @@ export type UploadedDocumentSummary = {
   status: string;
   malwareScanStatus: string;
   automatedInterpretationEligible: boolean;
+  validationAccepted: boolean;
+  intakeAssessment: {
+    result?: string;
+    summary?: string;
+    detectedDocumentType?: string;
+    warnings?: string[];
+  } | null;
 };
 
 type PendingUpload = {
@@ -43,6 +50,8 @@ export function DocumentUploadPanel(props: {
   onUploaded: (document: UploadedDocumentSummary) => void;
   onRemoved: (documentId: string) => void;
   onBusyChange: (busy: boolean) => void;
+  propertyAddress: string;
+  selectedReportIds: string[];
 }) {
   const isSitePhoto = props.category.code === "site_photographs";
   const inputRef = useRef<HTMLInputElement>(null);
@@ -68,6 +77,8 @@ export function DocumentUploadPanel(props: {
       form.set("issueDate", issueDate);
       form.set("revision", revision);
       form.set("clientNote", clientNote);
+      form.set("propertyAddress", props.propertyAddress);
+      form.set("selectedReportIds", props.selectedReportIds.join(","));
       form.set("file", item.file);
       const document = await new Promise<UploadedDocumentSummary>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -209,8 +220,8 @@ export function DocumentUploadPanel(props: {
 
       <div className="document-file-list" aria-live="polite">
         {props.documents.map((document) => (
-          <article key={document.id} className="uploaded">
-            <div><span>Uploaded</span><strong title={document.filename}>{document.filename}</strong><small>{size(document.byteSize)} · {document.mimeType} · {document.automatedInterpretationEligible ? "AI-readable when a provider is connected" : "Manual review only"}</small></div>
+          <article key={document.id} className={`uploaded ${document.validationAccepted ? "validated" : "needs-review"}`}>
+            <div><span>{document.validationAccepted ? "Accepted for intake" : "Needs attention"}</span><strong title={document.filename}>{document.filename}</strong><small>{size(document.byteSize)} · {document.mimeType} · {document.automatedInterpretationEligible ? "AI-readable" : "Manual review only"}</small>{document.intakeAssessment?.summary && <small>{document.intakeAssessment.summary}</small>}{document.intakeAssessment?.detectedDocumentType && <small>Detected: {document.intakeAssessment.detectedDocumentType}</small>}{document.intakeAssessment?.warnings?.map((warning) => <small key={warning}>{warning}</small>)}</div>
             <button type="button" onClick={() => void remove(document.id)} disabled={removing === document.id}>{removing === document.id ? "Removing…" : "Remove"}</button>
           </article>
         ))}
@@ -227,7 +238,7 @@ export function DocumentUploadPanel(props: {
         <p className="document-awaiting-message">You marked this document as available. Upload at least one file or untick the document.</p>
       )}
       {panelError && <p className="document-awaiting-message" role="alert">{panelError}</p>}
-      <p className="document-security-note">Files remain private and no permanent public URL is created. Local test mode uses isolated storage; hosted mode uses the private R2 binding. Live launch remains blocked until malware scanning is verified.</p>
+      <p className="document-security-note">Files remain private and no permanent public URL is created. When enabled, security screening runs first and AI relevance checking starts automatically on upload. Production can use private Supabase Storage or the private R2 binding; launch remains blocked until malware scanning is verified.</p>
     </div>
   );
 }

@@ -9,11 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-
     "dev:cloudflare": "vinext dev",
     "build:cloudflare": "vinext build",
     "start:cloudflare": "vinext start",
-
     "lint": "eslint . --ignore-pattern .next --ignore-pattern dist",
     "test": "node --test",
     "test:report-platform": "node --test tests/planning-pricing.test.mjs tests/report-platform.test.mjs tests/rendered-html.test.mjs",
@@ -25,6 +23,7 @@
     "fflate": "^0.8.2",
     "next": "^16.2.12",
     "pdf-lib": "^1.17.1",
+    "postgres": "^3.4.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

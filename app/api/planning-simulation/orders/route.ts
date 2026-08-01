@@ -27,6 +27,7 @@ import { fetchSafeReferenceMetadata, validateReferenceRequirement, type Referenc
 import { getReportPlatformRepository } from "../../../lib/report-platform/repository";
 import { hashAccessToken, safeRequestMetadata, tokenMatches, verifyServerProof } from "../../../lib/report-platform/security";
 import type { ConsentRecord } from "../../../lib/report-platform/types";
+import { documentAiIsRequired } from "../../../lib/report-platform/document-ai";
 
 const plansStatuses = new Set<PlansStatus>(["none", "frc_final", "frc_in_progress", "external_complete", "external_incomplete", "sheila_concept_required"]);
 const documentUpgradeCodes = new Set<DocumentAnalysisUpgradeCode>([
@@ -272,7 +273,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error:
-            "Complete the official NSW property source scan before confirming a report order.",
+            "Complete the official NSW property source scan, or the applicable Australian state or territory source scan, before confirming a report order.",
         },
         { status: 409 },
       );
@@ -314,6 +315,18 @@ export async function POST(request: Request) {
     );
     const awaiting = availableDocumentCategories.filter((category) => !uploadedCategories.has(category));
     if (awaiting.length) return Response.json({ error: "You marked this document as available. Upload at least one file or untick the document.", awaitingCategories: awaiting }, { status: 409 });
+    if (documentAiIsRequired()) {
+      const acceptedStatuses = new Set(["validated", "processed", "requires_professional_review"]);
+      const unaccepted = availableDocumentCategories.filter(
+        (category) => !documents.some((document) => document.category === category && acceptedStatuses.has(document.status)),
+      );
+      if (unaccepted.length) {
+        return Response.json({
+          error: `Document intake has not accepted: ${unaccepted.map((code) => DOCUMENT_CATEGORY_BY_CODE.get(code)?.label ?? code).join(", ")}. Upload the correct project evidence or route the uncertain file for professional review.`,
+          unacceptedCategories: unaccepted,
+        }, { status: 409 });
+      }
+    }
     for (const code of chargeableDocumentAnalysisUpgrades) {
       const upgrade = DOCUMENT_ANALYSIS_UPGRADE_BY_CODE.get(code);
       const hasEligibleUpload = upgrade?.eligibleDocumentCategories.some(
@@ -362,8 +375,14 @@ export async function POST(request: Request) {
       ? selectedReportIds.includes("council_readiness")
       : Boolean(pricingInput?.councilSubmissionRequested);
     if (councilRequested) {
-      const missing = COUNCIL_READINESS_REQUIRED_DOCUMENTS.filter((category) => !uploadedCategories.has(category));
-      if (missing.length) return Response.json({ error: "Council-submission readiness requires a complete document set before checkout.", missingCategories: missing }, { status: 409 });
+      const acceptedStatuses = new Set(["validated", "processed", "requires_professional_review"]);
+      const missing = COUNCIL_READINESS_REQUIRED_DOCUMENTS.filter((category) =>
+        !documents.some((document) => document.category === category && (!documentAiIsRequired() || acceptedStatuses.has(document.status))),
+      );
+      if (missing.length) return Response.json({
+        error: `Council-submission readiness cannot continue without: ${missing.map((code) => DOCUMENT_CATEGORY_BY_CODE.get(code)?.label ?? code).join(", ")}. AI cannot manufacture council certificates, registered surveys or architectural drawings.`,
+        missingCategories: missing,
+      }, { status: 409 });
     }
 
     const clientRaw = body.client && typeof body.client === "object" && !Array.isArray(body.client) ? body.client as Record<string, unknown> : {};

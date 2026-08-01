@@ -4,6 +4,7 @@ import { renderStructuredReportPdf } from "./report-pack";
 import { REPORT_BY_ID } from "./report-catalogue";
 import { getPrivateStorageProvider } from "./storage";
 import type { DocumentRecord, FinalReportRecord, NotificationRecord, ReportJob, ReportOrder } from "./types";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 export type NotificationMessage = {
   type: string;
@@ -103,6 +104,27 @@ const escapeHtml = (value: unknown) => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 
+async function renderPaidOrderReceipt(order: ReportOrder) {
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595, 842]);
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const draw = (value: string, x: number, y: number, size = 10, font = regular) => page.drawText(value.replace(/[^\x20-\x7E]/g, "-"), { x, y, size, font, color: rgb(0.08, 0.13, 0.1), maxWidth: 500 });
+  draw("FRC Design & Construction", 48, 782, 18, bold);
+  draw("Paid report order receipt", 48, 752, 13, bold);
+  draw(`Order: ${order.id}`, 48, 720);
+  draw(`Client: ${order.client.name} (${order.client.email})`, 48, 700);
+  draw(`Property: ${String(order.property.clientSuppliedAddress ?? "Private property")}`, 48, 680);
+  draw(`Payment status: ${order.paymentStatus}`, 48, 660);
+  draw(`Currency: ${order.currency}`, 48, 640);
+  draw(`Server-controlled total: A$${((order.priceSnapshot?.totalCents ?? 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 2 })}`, 48, 610, 12, bold);
+  draw(`Tax treatment: ${order.taxTreatment}`, 48, 590);
+  draw(`Pricing version: ${order.pricingVersion ?? "Not recorded"}`, 48, 570);
+  draw(`Recorded: ${order.updatedAt}`, 48, 550);
+  draw("This receipt records the website order and verified payment state. The payment provider remains the authoritative card-payment record.", 48, 510, 9);
+  return pdf.save();
+}
+
 export async function sendInternalOrderNotification(input: {
   order: ReportOrder;
   job: ReportJob;
@@ -122,13 +144,18 @@ export async function sendInternalOrderNotification(input: {
   const property = String(input.order.property.clientSuppliedAddress ?? "Private property reference");
   const selectedReports = (input.order.scope.selectedReportIds ?? []).map((id) => REPORT_BY_ID.get(id)?.name ?? id);
   const generatedPdf = await renderStructuredReportPdf(input.report.structuredReport);
+  const receiptPdf = await renderPaidOrderReceipt(input.order);
   const attachments: NotificationMessage["attachments"] = [{
     filename: `FRC-${input.order.id}-AI-report.pdf`,
     content: Buffer.from(generatedPdf).toString("base64"),
     contentType: "application/pdf",
+  }, {
+    filename: `FRC-${input.order.id}-receipt.pdf`,
+    content: Buffer.from(receiptPdf).toString("base64"),
+    contentType: "application/pdf",
   }];
   const storage = getPrivateStorageProvider();
-  let attachmentBytes = generatedPdf.byteLength;
+  let attachmentBytes = generatedPdf.byteLength + receiptPdf.byteLength;
   const omittedFiles: string[] = [];
   for (const document of input.documents) {
     if (document.malwareScanStatus !== "clean") {

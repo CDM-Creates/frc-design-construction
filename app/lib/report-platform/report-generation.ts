@@ -155,7 +155,7 @@ export async function createQueuedMockReportJob(orderId: string) {
     orderId,
     status: "queued",
     progressStage: "payment_verified",
-    aiProvider: "mock-report-ai",
+    aiProvider: getReportAiProvider().name,
     templateId: "pending_template_resolution",
     promptVersion: REPORT_PROMPT_VERSION,
     schemaVersion: REPORT_SCHEMA_VERSION,
@@ -238,7 +238,7 @@ export async function runMockReportGeneration(
     orderId,
     status: "queued",
     progressStage: "order_confirmed",
-    aiProvider: "mock-report-ai",
+    aiProvider: getReportAiProvider().name,
     templateId: template.templateId,
     promptVersion: REPORT_PROMPT_VERSION,
     schemaVersion: REPORT_SCHEMA_VERSION,
@@ -404,6 +404,8 @@ export async function runMockReportGeneration(
       templateSnapshots,
     };
     const provider = getReportAiProvider();
+    job.aiProvider = provider.name;
+    await repository.saveReportJob(job);
     const sections = [];
     for (const definition of template.sections) {
       const section = await provider.generateSection({ package: generationPackage, code: definition.key, heading: definition.heading });

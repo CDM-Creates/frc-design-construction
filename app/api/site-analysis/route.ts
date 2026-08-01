@@ -1,6 +1,11 @@
 import { getReportPlatformRepository } from "../../lib/report-platform/repository";
 import { getPlatformDataBackend } from "../../lib/report-platform/config";
 import { createServerProof, hashAccessToken, tokenMatches } from "../../lib/report-platform/security";
+import {
+  buildAustralianResearchRegister,
+  detectAustralianJurisdiction,
+} from "../../lib/planning-simulation/australian-planning-sources";
+import { researchAustralianProperty } from "../../lib/report-platform/australian-property-research-ai";
 
 type ArcFeature = {
   attributes?: Record<string, unknown>;
@@ -534,7 +539,172 @@ function projectGuidance(zone: string, heritage: boolean, inputs: ProjectInputs,
 export async function POST(request: Request) {
   try {
     const inputs = await request.json() as ProjectInputs;
-    const address = inputs.address ?? `${inputs.streetAddress ?? ""}, ${inputs.suburb ?? ""} NSW ${inputs.postcode ?? ""}`;
+    const address = inputs.address ?? `${inputs.streetAddress ?? ""}, ${inputs.suburb ?? ""} ${inputs.postcode ?? ""}`;
+    const jurisdiction = detectAustralianJurisdiction(address);
+    if (!jurisdiction) {
+      return Response.json({
+        error: "Include the Australian state or territory and four-digit postcode so the correct official planning sources can be selected.",
+      }, { status: 400 });
+    }
+    if (jurisdiction.code !== "NSW") {
+      const researchedAt = new Date().toISOString();
+      const researchRegister: Array<Record<string, unknown>> = buildAustralianResearchRegister(jurisdiction, address.trim(), researchedAt);
+      let aiPublicResearch = null;
+      try {
+        aiPublicResearch = await researchAustralianProperty({ address: address.trim(), jurisdiction });
+        if (aiPublicResearch) {
+          researchRegister.push(...aiPublicResearch.findings.map((finding, index) => ({
+            id: `${jurisdiction.code}-AI-DISCOVERY-${index + 1}`,
+            code: `${jurisdiction.code}_AI_DISCOVERY_${index + 1}`,
+            title: finding.sourceTitle,
+            label: finding.sourceTitle,
+            sourceType: finding.verificationState,
+            evidenceClass: finding.verificationState,
+            access: "public_link_requires_verification",
+            sourceAuthority: finding.sourceAuthority,
+            sourceUrl: finding.sourceUrl,
+            propertyAddress: address.trim(),
+            purpose: `${finding.field}: ${finding.value}`,
+            locator: finding.locator,
+            retrievedAt: researchedAt,
+            status: finding.verificationState,
+            note: `${finding.field}: ${finding.value}. ${finding.locator}`,
+            prerequisite: "Open the original source and confirm that it applies to the exact property and report date",
+            url: finding.sourceUrl,
+            confidence: finding.confidence,
+            limitations: "AI-discovered public information remains a lead until the underlying property-specific source is confirmed by the report workflow or a professional.",
+          })));
+        }
+      } catch (error) {
+        researchRegister.push({
+          id: `${jurisdiction.code}-AI-DISCOVERY-ERROR`,
+          code: `${jurisdiction.code}_AI_DISCOVERY_ERROR`,
+          title: "Optional public web research",
+          label: "Optional public web research",
+          sourceType: "automated_research_status",
+          evidenceClass: "automated_research_status",
+          access: "not_available",
+          propertyAddress: address.trim(),
+          retrievedAt: researchedAt,
+          status: "unavailable",
+          note: error instanceof Error ? error.message : "Automated public research did not complete.",
+          prerequisite: "Connect and verify the configured property-research AI provider",
+          url: jurisdiction.planningPortalUrl,
+          limitations: error instanceof Error ? error.message : "Automated public research did not complete.",
+        });
+      }
+      const unavailableField = (label: string) => ({
+        value: null,
+        sourceName: jurisdiction.planningPortalName,
+        sourceLayer: label,
+        sourceFeatureId: null,
+        retrievedAt: researchedAt,
+        status: "unavailable",
+      });
+      const planningFields = {
+        council: unavailableField("Responsible local authority"),
+        lotDp: unavailableField("State or territory cadastral identity"),
+        parcelArea: unavailableField("Mapped parcel area"),
+        zone: unavailableField("Planning zone"),
+        height: unavailableField("Building-height controls"),
+        fsr: unavailableField("Density or floor-area controls"),
+        minimumLotSize: unavailableField("Minimum lot-size controls"),
+        heritage: unavailableField("Heritage screening"),
+        bushfire: unavailableField("Bushfire screening"),
+        flooding: unavailableField("Flood screening"),
+      };
+      const constraints = Object.entries(planningFields).map(([code]) => ({
+        name: code.replaceAll(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase()),
+        value: `Official ${jurisdiction.code} source identified; property-specific result requires retrieval and verification`,
+        status: "unknown",
+      }));
+      const property = {
+        clientSuppliedAddress: address.trim(),
+        officialAddress: null,
+        lotDp: null,
+        council: null,
+        mappedAreaSqm: null,
+        boundaryStatus: "unavailable",
+        sourceAreaStatus: "unavailable",
+        parcelCount: 1,
+        sourceStatus: "official_source_paths_identified",
+        propertyResearchStatus: "complete",
+        propertyResearchProvider: "AU_OFFICIAL_SOURCE_ROUTER_V1",
+        propertyResearchRetrievedAt: researchedAt,
+        jurisdiction: jurisdiction.code,
+        jurisdictionName: jurisdiction.name,
+        planningFields,
+        constraints,
+        researchRegister,
+        aiPublicResearch,
+        source: {
+          planningPortal: jurisdiction.planningPortalUrl,
+          dataAttribution: jurisdiction.sources.map((source) => source.authority).join("; "),
+          retrievedAt: researchedAt,
+          propertySpecificDataStatus: "not_yet_retrieved_requires_ai_or_professional_verification",
+        },
+      };
+      let propertyResearchProof: string | null = null;
+      if (inputs.reportOrderId || inputs.reportAccessToken) {
+        const reportOrderId = inputs.reportOrderId?.trim().slice(0, 80) ?? "";
+        const reportAccessToken = inputs.reportAccessToken?.trim().slice(0, 160) ?? "";
+        if (!reportOrderId || !reportAccessToken) {
+          return Response.json({ error: "Both report order ID and access token are required." }, { status: 400 });
+        }
+        const repository = await getReportPlatformRepository();
+        let order = await repository.getOrder(reportOrderId);
+        if (!order && getPlatformDataBackend() === "node") {
+          order = await repository.createDraftOrder(await hashAccessToken(reportAccessToken), reportOrderId);
+        }
+        if (!order || !(await tokenMatches(reportAccessToken, order.ownerHash))) {
+          return Response.json({ error: "Property-research authorisation failed." }, { status: 403 });
+        }
+        if (!["draft", "awaiting_uploads"].includes(order.status)) {
+          return Response.json({ error: "Property research cannot be replaced after the order is confirmed." }, { status: 409 });
+        }
+        order.property = { ...order.property, ...property };
+        order.updatedAt = researchedAt;
+        await repository.saveOrder(order);
+        await repository.addOrderEvent({
+          id: crypto.randomUUID(),
+          orderId: order.id,
+          eventType: "official_property_source_paths_identified",
+          actor: "system",
+          metadata: { provider: "AU_OFFICIAL_SOURCE_ROUTER_V1", jurisdiction: jurisdiction.code, retrievedAt: researchedAt },
+          createdAt: researchedAt,
+        });
+        propertyResearchProof = await createServerProof({
+          orderId: order.id,
+          issuedAt: researchedAt,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          property: order.property,
+        });
+      }
+      return Response.json({
+        matchStatus: "official_source_routed",
+        matchedAt: researchedAt,
+        matchedAddress: address.trim(),
+        fullAddress: address.trim(),
+        privacyLabel: `Private ${jurisdiction.code} property`,
+        jurisdiction: jurisdiction.code,
+        jurisdictionName: jurisdiction.name,
+        council: null,
+        lotDp: null,
+        mappedParcelAreaSqm: null,
+        areaStatus: "unavailable",
+        controls: { zone: "Requires official portal retrieval", zoneName: "Not yet verified", lep: `${jurisdiction.name} planning framework`, maxHeight: null, fsr: null, minimumLotSize: null, heritage: null, bushfire: null, flooding: null },
+        planningFields,
+        constraints,
+        opportunities: [],
+        guidance: null,
+        researchRegister,
+        aiPublicResearch,
+        source: property.source,
+        analysedAt: researchedAt,
+        propertyResearchProof,
+        notice: `The official ${jurisdiction.name} source paths are retained. No zoning, overlay, hazard or approval claim is made until a property-specific source result is retrieved and verified.`,
+      });
+    }
     const parsed = parseAddress(address);
     if (!parsed) {
       console.warn("[site-analysis] Rejected incomplete address", { address, suburb: inputs.suburb, postcode: inputs.postcode });
