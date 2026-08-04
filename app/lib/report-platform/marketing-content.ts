@@ -1,9 +1,10 @@
 export const APPROVED_MARKETING_COPY = {
   primaryValue: "Detailed planning intelligence without the cost and delay of beginning with a fully bespoke investigation.",
-  price: "Transparent report pricing is shown before payment, with no charge simply for uploading documents.",
+  price: "Estimated report costs are shown before you send a quote request. Final pricing is confirmed by FRC before work proceeds.",
   comparison: "Compare the report inclusions, evidence standards and deliverables with other professional quotations before making your decision.",
-  savings: "Our report platform is designed to reduce repeated research, document sorting and preliminary briefing work.",
-  delivery: "Eligible AI-assisted reports can often be prepared within approximately 10–20 minutes once payment, uploads and source checks are complete.",
+  savings: "Our report pathway is designed to reduce repeated research, document sorting and preliminary briefing work.",
+  delivery:
+    "An AI draft report is prepared first. Because AI drafting can be inconsistent, an FRC professional reviews it so you receive everything included in your quoted scope within approximately one week.",
   documents: "Use the information you already hold. Supplied plans, surveys and certificates are incorporated into the analysis rather than ignored or recreated.",
 } as const;
 
@@ -17,14 +18,14 @@ export const PROHIBITED_MARKETING_CLAIMS = [
 ] as const;
 
 export function getTurnaroundCopy() {
-  const targetEnabled = process.env.FRC_AI_TURNAROUND_TARGET_ENABLED !== "false";
   return {
-    targetEnabled,
-    target: targetEnabled
-      ? "Target generation time: approximately 10–20 minutes after payment, successful file processing and access to the required property sources."
-      : "",
-    qualification: "Some reports may take longer where sources are unavailable, uploaded documents require additional processing, conflicts are detected or professional review is selected.",
-    professionalReview: "Professional-review timing begins after the AI-assisted draft and all required information are available.",
+    targetEnabled: true,
+    target:
+      "Target delivery: approximately one week after FRC confirms your quote and has the information needed for your scope.",
+    qualification:
+      "Some reports may take longer where sources are unavailable, uploaded documents require additional processing, or conflicts need clarification.",
+    professionalReview:
+      "A draft is prepared first; an FRC professional then reviews it before release so the quoted scope is delivered.",
     guaranteed: false,
   };
 }

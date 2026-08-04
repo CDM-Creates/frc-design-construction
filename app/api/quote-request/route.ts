@@ -101,11 +101,12 @@ export async function POST(request: Request) {
     }
 
     const apiKey = process.env.RESEND_API_KEY;
-    const recipient = process.env.HEAD_ARCHITECT_EMAIL ?? "frcdesignconstruction@gmail.com";
-    const from = process.env.QUOTE_FROM_EMAIL ?? "FRC Website <onboarding@resend.dev>";
+    const { getQuoteFromEmail, getQuoteRecipientEmail } = await import("../../lib/report-platform/quote-delivery");
+    const recipient = getQuoteRecipientEmail();
+    const from = getQuoteFromEmail();
 
     if (!apiKey) {
-      return Response.json({ error: "Email delivery is not configured yet. Add RESEND_API_KEY, HEAD_ARCHITECT_EMAIL and QUOTE_FROM_EMAIL to the deployment environment." }, { status: 503 });
+      return Response.json({ error: "Email delivery is not configured yet. Add RESEND_API_KEY, QUOTE_TO_EMAIL (or HEAD_ARCHITECT_EMAIL) and QUOTE_FROM_EMAIL to the deployment environment." }, { status: 503 });
     }
 
     const propertyAddress = text(project.address, 300) || [text(project.suburb, 120), project.postcode ? `NSW ${text(project.postcode, 10)}` : ""].filter(Boolean).join(", ");
@@ -280,7 +281,16 @@ export async function POST(request: Request) {
     if (!emailResponse.ok) {
       const details = await emailResponse.text();
       console.error("Quote email delivery failed", emailResponse.status, details);
-      return Response.json({ error: "The project brief was complete, but email delivery failed. Please try again later." }, { status: 502 });
+      let resendMessage = details.slice(0, 500);
+      try {
+        const parsed = JSON.parse(details) as { message?: string };
+        resendMessage = parsed.message || resendMessage;
+      } catch {
+        // keep raw
+      }
+      return Response.json({
+        error: `Email delivery failed (${emailResponse.status}): ${resendMessage}. Confirm QUOTE_FROM_EMAIL uses a verified Resend domain.`,
+      }, { status: 502 });
     }
 
     return Response.json({ ok: true, jobId, internalPath: `/simulation-results/${jobId}` });

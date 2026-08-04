@@ -80,7 +80,6 @@ export const DECISION_OBJECTIVES = [
   { id: "plans_review", label: "I already have architectural plans" },
   { id: "compare_options", label: "I want to compare several development options" },
   { id: "council_certification", label: "I am preparing for council or certification" },
-  { id: "professional_verification", label: "I want FRC professional verification" },
   { id: "tailored_assessment", label: "I need a tailored development assessment" },
 ] as const;
 
@@ -279,9 +278,9 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     id: "professional_review",
     templateId: "frc-professionally-reviewed-v1",
     name: "FRC Professionally Reviewed Report",
-    purpose: "Adds genuine FRC review, corrections and release approval to the selected report engagement.",
+    purpose: "Legacy catalogue entry retained for historic orders. Not offered on new quote requests.",
     suitedTo: CUSTOMER_TYPES.map((customer) => customer.id),
-    answers: "Can FRC review and formally release the report within the agreed preliminary service scope?",
+    answers: "Historic professional-review add-on.",
     includes: ["Human review queue", "Reviewer change record", "Approved release status", "Professional review record"],
     excludes: ["Development consent", "Certification outside the agreed scope"],
     requiredInputs: ["At least one base report", "Complete required information"],
@@ -294,16 +293,16 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     minimumStandalonePriceCents: 219_500,
     combinable: true,
     developmentSpecific: false,
-    recommendedFor: ["professional_verification", "council_certification"],
+    recommendedFor: [],
   }),
   report({
     id: "council_readiness",
     templateId: "frc-council-readiness-v1",
     name: "Council-Readiness Assessment",
-    purpose: "A professionally reviewed evidence and document readiness schedule for council or certification preparation.",
+    purpose: "An evidence and document readiness schedule for council or certification preparation, reviewed by FRC before release.",
     suitedTo: ["property_owner", "builder", "external_architect", "external_designer", "town_planner_consultant", "investor_developer"],
     answers: "Which documents, control checks and professional inputs remain before lodgement preparation?",
-    includes: ["Professional review", "Drawing and control cross-check", "Submission-readiness schedule", "Consultant coordination"],
+    includes: ["FRC review before release", "Drawing and control cross-check", "Submission-readiness schedule", "Consultant coordination"],
     excludes: ["Council lodgement", "Guaranteed acceptance", "Formal certification"],
     requiredInputs: ["Complete architectural plan set", "Required supporting documents"],
     referencesRequired: false,
@@ -461,13 +460,17 @@ export type FrozenCataloguePriceSnapshot = CataloguePriceResult & {
 };
 
 export function recommendationsFor(customerType: CustomerTypeId, decisionObjective: DecisionObjectiveId) {
-  return REPORT_CATALOGUE.map((entry) => {
-    const required = decisionObjective === "council_certification" && entry.id === "professional_review";
+  return REPORT_CATALOGUE.filter((entry) => entry.id !== "professional_review").map((entry) => {
     const recommended = entry.recommendedFor.includes(decisionObjective) ||
       (entry.suitedTo.includes(customerType) && ["general_planning", "development_potential"].includes(decisionObjective));
-    return { reportId: entry.id, status: required ? "required" as const : recommended ? "recommended" as const : "optional" as const };
+    return { reportId: entry.id, status: recommended ? "recommended" as const : "optional" as const };
   });
 }
+
+/** Reports offered on new simulator quote requests (excludes legacy professional-review add-on). */
+export const CLIENT_REPORT_CATALOGUE = REPORT_CATALOGUE.filter(
+  (entry) => entry.id !== "professional_review",
+);
 
 export function calculateCataloguePrice(input: {
   reportIds: string[];

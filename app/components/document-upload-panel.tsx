@@ -221,7 +221,7 @@ export function DocumentUploadPanel(props: {
       <div className="document-file-list" aria-live="polite">
         {props.documents.map((document) => (
           <article key={document.id} className={`uploaded ${document.validationAccepted ? "validated" : "needs-review"}`}>
-            <div><span>{document.validationAccepted ? "Accepted for intake" : "Needs attention"}</span><strong title={document.filename}>{document.filename}</strong><small>{size(document.byteSize)} · {document.mimeType} · {document.automatedInterpretationEligible ? "AI-readable" : "Manual review only"}</small>{document.intakeAssessment?.summary && <small>{document.intakeAssessment.summary}</small>}{document.intakeAssessment?.detectedDocumentType && <small>Detected: {document.intakeAssessment.detectedDocumentType}</small>}{document.intakeAssessment?.warnings?.map((warning) => <small key={warning}>{warning}</small>)}</div>
+            <div><span>{document.validationAccepted ? "Accepted for intake" : "Needs attention"}</span><strong title={document.filename}>{document.filename}</strong><small>{size(document.byteSize)} · {document.mimeType} · {document.automatedInterpretationEligible ? "Machine-readable" : "Manual review only"}</small>{document.intakeAssessment?.summary && <small>{document.intakeAssessment.summary}</small>}{document.intakeAssessment?.detectedDocumentType && <small>Detected: {document.intakeAssessment.detectedDocumentType}</small>}{document.intakeAssessment?.warnings?.map((warning) => <small key={warning}>{warning}</small>)}</div>
             <button type="button" onClick={() => void remove(document.id)} disabled={removing === document.id}>{removing === document.id ? "Removing…" : "Remove"}</button>
           </article>
         ))}
@@ -238,7 +238,7 @@ export function DocumentUploadPanel(props: {
         <p className="document-awaiting-message">You marked this document as available. Upload at least one file or untick the document.</p>
       )}
       {panelError && <p className="document-awaiting-message" role="alert">{panelError}</p>}
-      <p className="document-security-note">Files remain private and no permanent public URL is created. When enabled, security screening runs first and AI relevance checking starts automatically on upload. Production can use private Supabase Storage or the private R2 binding; launch remains blocked until malware scanning is verified.</p>
+      <p className="document-security-note">Files remain private and no permanent public URL is created. When enabled, security screening runs first on upload. Production can use private Supabase Storage or the private R2 binding; launch remains blocked until malware scanning is verified.</p>
     </div>
   );
 }

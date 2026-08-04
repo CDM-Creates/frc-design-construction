@@ -24,19 +24,24 @@ import {
 } from "./document-upload-panel";
 import {
   calculateCataloguePrice,
+  CLIENT_REPORT_CATALOGUE,
   CUSTOMER_TYPES,
   DECISION_OBJECTIVES,
   isDocumentAnalysisIncluded,
   recommendationsFor,
   REPORT_BY_ID,
-  REPORT_CATALOGUE,
   type CustomerTypeId,
   type DecisionObjectiveId,
 } from "../lib/report-platform/report-catalogue";
+import { REPORT_QUOTE_TURNAROUND_COPY } from "../lib/report-platform/quote-delivery";
 import {
   COMMON_REPORT_SECTIONS,
   REPORT_TEMPLATE_BY_ID,
 } from "../lib/report-platform/report-template-registry";
+import {
+  getPlanningTerminology,
+  type AustralianJurisdictionCode,
+} from "../lib/planning-simulation/australian-planning-sources";
 
 const STORAGE_KEY = "frcPlanningReportPlatform";
 const LEGACY_STORAGE_KEY = "frcPlanningSimulation";
@@ -62,6 +67,7 @@ const PLAN_OPTIONS: Array<{ value: PlansStatus; title: string; body: string }> =
 
 type PropertyAnalysis = {
   matchStatus?: string;
+  propertyId?: string | null;
   jurisdiction?: string;
   jurisdictionName?: string;
   notice?: string;
@@ -69,6 +75,8 @@ type PropertyAnalysis = {
   council?: string;
   lotDp?: string | null;
   mappedParcelAreaSqm?: number | null;
+  propertyAggregateAreaSqm?: number | null;
+  propertyResearchStatus?: "complete" | "incomplete";
   areaStatus?: "mapped" | "requires_verification" | "unavailable";
   controls?: {
     zone?: string;
@@ -103,6 +111,10 @@ type PropertyAnalysis = {
   }>;
   propertyResearchProof?: string | null;
 };
+
+function isSuccessfulPrimaryPropertyMatch(analysis: PropertyAnalysis) {
+  return analysis.matchStatus === "matched" && Boolean(analysis.matchedAddress);
+}
 
 type WizardState = {
   step: number;
@@ -266,15 +278,25 @@ export function PlanningSimulationWizard() {
   const [hydrated, setHydrated] = useState(false);
   const [propertyStatus, setPropertyStatus] = useState<"idle" | "loading" | "matched" | "error">("idle");
   const [propertyError, setPropertyError] = useState("");
+  const [propertyResearchStatus, setPropertyResearchStatus] = useState<
+    "idle" | "loading" | "planning_complete" | "complete" | "error"
+  >("idle");
+  const [propertyResearchError, setPropertyResearchError] = useState("");
   const [validationError, setValidationError] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmedServerPrice, setConfirmedServerPrice] = useState<{
     snapshotId: string;
     totalCents: number;
   } | null>(null);
+  const [quoteSubmitted, setQuoteSubmitted] = useState<{
+    orderId: string;
+    message: string;
+    totalCents: number;
+  } | null>(null);
   const [busyUploads, setBusyUploads] = useState(0);
   const topRef = useRef<HTMLDivElement>(null);
   const draftPromise = useRef<Promise<{ orderId: string; accessToken: string }> | null>(null);
+  const propertyPlanningPromise = useRef<Promise<PropertyAnalysis> | null>(null);
 
   const update = (patch: Partial<WizardState>) => setState((current) => ({ ...current, ...patch }));
 
@@ -328,7 +350,14 @@ export function PlanningSimulationWizard() {
         };
         queueMicrotask(() => {
           setState(restored);
-          if (sourceResearchRestorable) setPropertyStatus("matched");
+          if (sourceResearchRestorable) {
+            setPropertyStatus("matched");
+            setPropertyResearchStatus(
+              restored.propertyAnalysis?.propertyResearchStatus === "complete"
+                ? "complete"
+                : "idle",
+            );
+          }
           setHydrated(true);
         });
         return;
@@ -363,18 +392,11 @@ export function PlanningSimulationWizard() {
   }, [state.propertyAnalysis]);
 
   const pricingInput = useMemo(() => pricingInputFor(state, discoveredConstraints), [state, discoveredConstraints]);
-  const reviewIncludedBySelectedReport = state.selectedReportIds.some((id) => {
-    const review = REPORT_BY_ID.get(id)?.professionalReview;
-    return review === "included" || review === "mandatory";
-  });
-  const effectiveProfessionalReview =
-    state.professionalVerificationRequested ||
-    reviewIncludedBySelectedReport;
   const cataloguePricing = (() => {
     if (!state.selectedReportIds.length || !state.customerType) return null;
     try {
       return calculateCataloguePrice({
-        reportIds: state.selectedReportIds,
+        reportIds: state.selectedReportIds.filter((id) => id !== "professional_review"),
         customerType: state.customerType,
         site: {
           areaSqm: state.propertyAnalysis?.mappedParcelAreaSqm ?? (Number(state.clientSuppliedLandAreaSqm) || null),
@@ -385,9 +407,8 @@ export function PlanningSimulationWizard() {
           parcelCount: state.propertyCount,
           ruralOrNonStandard: false,
         },
-        professionalReviewRequested: state.professionalVerificationRequested,
-        priorityReviewRequested:
-          state.priorityRequested && effectiveProfessionalReview,
+        professionalReviewRequested: false,
+        priorityReviewRequested: false,
         documentAnalysisUpgrades: state.documentAnalysisUpgrades,
       });
     } catch {
@@ -458,15 +479,12 @@ export function PlanningSimulationWizard() {
     if (state.step === 1 && (!state.customerType || !state.decisionObjective)) return "Choose which customer type best describes you and what you are trying to understand.";
     if (state.step === 2 && !state.selectedReportIds.length) return "Select at least one complete report.";
     if (state.step === 2) {
-      const selectedBaseReports = state.selectedReportIds.filter(
-        (id) => !["professional_review", "council_readiness"].includes(id),
-      );
-      if (
-        state.selectedReportIds.includes("professional_review") &&
-        selectedBaseReports.length === 0
-      ) {
-        return "Select a substantive base report before adding professional review.";
+      if (state.selectedReportIds.includes("professional_review")) {
+        return "Professional-review add-ons are no longer offered. Choose a report from the catalogue; FRC review is included in delivery.";
       }
+      const selectedBaseReports = state.selectedReportIds.filter(
+        (id) => id !== "council_readiness",
+      );
       if (
         state.selectedReportIds.includes("council_readiness") &&
         !selectedBaseReports.some(
@@ -486,8 +504,9 @@ export function PlanningSimulationWizard() {
       ) {
         return "Provide a reference URL or written development brief, or choose to upload reference material in the next step.";
       }
-      const developmentSelected = state.selectedReportIds.some((id) => REPORT_BY_ID.get(id)?.developmentSpecific);
-      if (developmentSelected && !state.writtenMotivation.trim() && !state.motivationSelections.length) return "Tell us what is motivating this project.";
+      if (state.selectedReportIds.length && !state.writtenMotivation.trim() && !state.motivationSelections.length) {
+        return "Tell us what you want to use the land for / what is motivating this project.";
+      }
     }
     if (state.step === 3) {
       if (busyUploads > 0) return "Wait for current document uploads to finish.";
@@ -504,7 +523,7 @@ export function PlanningSimulationWizard() {
       );
       if (rejected.length) {
         const labels = rejected.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
-        return `The document check has not accepted: ${labels.join(", ")}. Remove the wrong file and upload matching project evidence, or wait for professional review.`;
+        return `The document check has not accepted: ${labels.join(", ")}. Remove the wrong file and upload matching project evidence.`;
       }
       if (state.selectedReportIds.includes("council_readiness")) {
         const missing = COUNCIL_READINESS_REQUIRED_DOCUMENTS.filter(
@@ -512,7 +531,7 @@ export function PlanningSimulationWizard() {
         );
         if (missing.length) {
           const labels = missing.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code);
-          return `Council Readiness cannot continue yet. Upload the required evidence: ${labels.join(", ")}. These official or professional documents cannot be replaced by AI.`;
+          return `Council Readiness cannot continue yet. Upload the required evidence: ${labels.join(", ")}. These official or professional documents cannot be replaced by a draft summary.`;
         }
       }
     }
@@ -538,8 +557,77 @@ export function PlanningSimulationWizard() {
     }
     const error = validateCurrentStep(uploadedDocuments);
     if (error) return setValidationError(error);
+    const propertyWasConfirmed = state.step === 0;
     setStep(Math.min(6, state.step + 1));
+    if (
+      propertyWasConfirmed &&
+      state.propertyAnalysis?.propertyResearchStatus !== "complete"
+    ) {
+      void loadPropertyPlanning().catch(() => {
+        // The confirmed address remains usable. Planning-layer enrichment is
+        // optional pre-pay; full multi-source research runs after payment.
+      });
+    }
   };
+
+  const loadPropertyPlanning = async () => {
+    if (
+      state.propertyAnalysis?.propertyResearchStatus === "complete" ||
+      propertyResearchStatus === "planning_complete"
+    ) {
+      return state.propertyAnalysis;
+    }
+    if (propertyPlanningPromise.current) return propertyPlanningPromise.current;
+
+    const promise = (async () => {
+      setPropertyResearchStatus("loading");
+      setPropertyResearchError("");
+      const draft = await ensureDraft();
+      const response = await fetch("/api/site-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysisScope: "planning",
+          address: state.address,
+          knownLandArea:
+            Number(state.clientSuppliedLandAreaSqm) || undefined,
+          reportOrderId: draft.orderId,
+          reportAccessToken: draft.accessToken,
+        }),
+      });
+      const result = await response.json() as PropertyAnalysis & { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || "The planning-layer screen could not be completed.");
+      }
+      if (!isSuccessfulPrimaryPropertyMatch(result) && result.matchStatus !== "official_source_routed") {
+        throw new Error("The official property match was not retained during planning screening.");
+      }
+      update({
+        propertyAnalysis: result,
+        propertyResearchOrderId: draft.orderId,
+      });
+      setPropertyResearchStatus(
+        result.propertyResearchStatus === "complete"
+          ? "complete"
+          : "planning_complete",
+      );
+      return result;
+    })();
+    propertyPlanningPromise.current = promise;
+    try {
+      return await promise;
+    } catch (error) {
+      setPropertyResearchStatus("error");
+      setPropertyResearchError(
+        error instanceof Error ? error.message : "The planning-layer screen could not be completed.",
+      );
+      throw error;
+    } finally {
+      propertyPlanningPromise.current = null;
+    }
+  };
+
+  // Full multi-source research is started only by the paid report worker.
 
   const checkProperty = async () => {
     if (!state.address.trim()) return setPropertyError("Enter the full Australian property address, including state and postcode, first.");
@@ -551,6 +639,7 @@ export function PlanningSimulationWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          analysisScope: "address_match",
           address: state.address,
           knownLandArea:
             Number(state.clientSuppliedLandAreaSqm) || undefined,
@@ -560,27 +649,37 @@ export function PlanningSimulationWizard() {
       });
       const result = await response.json() as PropertyAnalysis & { error?: string };
       if (!response.ok) throw new Error(result.error || "The property could not be matched.");
+      if (!isSuccessfulPrimaryPropertyMatch(result) && result.matchStatus !== "official_source_routed") {
+        throw new Error("The official address service did not return a usable match.");
+      }
       update({
         propertyAnalysis: result,
         propertyResearchOrderId: draft.orderId,
       });
       setPropertyStatus("matched");
+      setPropertyResearchStatus(
+        result.propertyResearchStatus === "complete" ? "complete" : "idle",
+      );
     } catch (error) {
       update({ propertyAnalysis: null, propertyResearchOrderId: "" });
       setPropertyStatus("error");
+      setPropertyResearchStatus("idle");
       setPropertyError(error instanceof Error ? error.message : "Planning source temporarily unavailable.");
     }
   };
 
   const restart = () => {
-    if (!window.confirm("Restart this simulation and clear the local draft? Uploaded test files remain in private test storage for audit and cleanup.")) return;
+    if (!window.confirm("Restart this quote and clear the local draft? Uploaded test files remain in private test storage for audit and cleanup.")) return;
     if (state.draftOrderId) window.sessionStorage.removeItem(`frcReportOrderAccess:${state.draftOrderId}`);
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     setState(INITIAL_STATE);
     setConfirmedServerPrice(null);
+    setQuoteSubmitted(null);
     setPropertyStatus("idle");
     setPropertyError("");
+    setPropertyResearchStatus("idle");
+    setPropertyResearchError("");
     setValidationError("");
   };
 
@@ -589,10 +688,9 @@ export function PlanningSimulationWizard() {
     if (!state.clientName.trim() || !/^\S+@\S+\.\S+$/.test(state.clientEmail) || !state.clientPhone.trim()) {
       return setValidationError("Enter the client name, valid email and phone number.");
     }
-    const required = ["preliminary_limitations", "document_authority", "secure_processing"] as const;
-    const reviewRequired = state.professionalVerificationRequested || state.selectedReportIds.some((id) => ["professional_review", "council_readiness"].includes(id));
-    if (required.some((code) => !state.consents[code]) || (reviewRequired && !state.consents.professional_timeframe)) {
-      return setValidationError("Accept every required acknowledgement before continuing.");
+    const required = ["preliminary_limitations", "document_authority", "secure_processing", "professional_timeframe"] as const;
+    if (required.some((code) => !state.consents[code])) {
+      return setValidationError("Accept every required acknowledgement before sending your quote request.");
     }
     let uploadedDocuments = state.uploadedDocuments;
     if (state.draftOrderId && state.draftAccessToken) {
@@ -614,13 +712,22 @@ export function PlanningSimulationWizard() {
     setSaving(true);
     setValidationError("");
     try {
+      const propertyAnalysisForOrder =
+        state.propertyAnalysis &&
+        (state.propertyAnalysis.propertyResearchStatus === "complete" ||
+          isSuccessfulPrimaryPropertyMatch(state.propertyAnalysis) ||
+          state.propertyAnalysis.matchStatus === "official_source_routed")
+          ? state.propertyAnalysis
+          : await loadPropertyPlanning();
       const draft = await ensureDraft();
+      const selectedReportIds = state.selectedReportIds.filter((id) => id !== "professional_review");
       const orderResponse = await fetch("/api/planning-simulation/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderId: draft.orderId,
           accessToken: draft.accessToken,
+          requestQuote: true,
           client: {
             name: state.clientName,
             email: state.clientEmail,
@@ -632,29 +739,29 @@ export function PlanningSimulationWizard() {
           },
           property: {
             clientSuppliedAddress: state.address,
-            officialAddress: state.propertyAnalysis?.matchedAddress ?? null,
-            lotDp: state.propertyAnalysis?.lotDp ?? null,
-            council: state.propertyAnalysis?.council ?? null,
-            mappedAreaSqm: state.propertyAnalysis?.mappedParcelAreaSqm ?? null,
+            officialAddress: propertyAnalysisForOrder?.matchedAddress ?? null,
+            lotDp: propertyAnalysisForOrder?.lotDp ?? null,
+            council: propertyAnalysisForOrder?.council ?? null,
+            mappedAreaSqm: propertyAnalysisForOrder?.mappedParcelAreaSqm ?? null,
             clientSuppliedAreaSqm: Number(state.clientSuppliedLandAreaSqm) || null,
-            sourceStatus: state.propertyAnalysis ? "official_source_retrieved" : "not_verified",
+            sourceStatus: propertyAnalysisForOrder ? "official_source_retrieved" : "not_verified",
             boundaryStatus: boundaryStatusForAnalysis(
-              state.propertyAnalysis,
+              propertyAnalysisForOrder,
               state.clientSuppliedLandAreaSqm,
             ),
             parcelCount: state.propertyCount,
           },
-          propertyResearchProof: state.propertyAnalysis?.propertyResearchProof ?? null,
+          propertyResearchProof: propertyAnalysisForOrder?.propertyResearchProof ?? null,
           ownsProperty: state.ownsProperty,
           plansStatus: state.plansStatus,
-          selectedReportIds: state.selectedReportIds,
+          selectedReportIds,
           selectedItems: state.selectedItems,
           pricingInput,
           assessmentMode: state.selectedItems.length === 1 ? "single" : state.assessmentMode,
           availableDocumentCategories: state.availableDocumentCategories,
           notes: state.notes,
-          professionalReviewRequested: state.professionalVerificationRequested,
-          priorityReviewRequested: state.priorityRequested,
+          professionalReviewRequested: false,
+          priorityReviewRequested: false,
           documentAnalysisUpgrades: state.documentAnalysisUpgrades,
           projectMotivation: {
             selections: state.motivationSelections,
@@ -681,11 +788,14 @@ export function PlanningSimulationWizard() {
             budgetRange: state.budgetRange || null,
             timeframe: state.timeframe || null,
           },
-          referenceMaterials: state.selectedReportIds.filter((id) => REPORT_BY_ID.get(id)?.referencesRequired).map((reportId) => ({
-            reportId,
-            url: state.referenceUrl,
-            writtenBrief: state.referenceBrief,
-          })),
+          referenceMaterials:
+            state.referenceUrl.trim() || state.referenceBrief.trim()
+              ? selectedReportIds.map((reportId) => ({
+                  reportId,
+                  url: state.referenceUrl,
+                  writtenBrief: state.referenceBrief,
+                }))
+              : [],
           clientResearch: {
             urls: listInput(state.clientResearchLinks),
             notes: state.clientResearchNotes,
@@ -699,11 +809,10 @@ export function PlanningSimulationWizard() {
         priceSnapshot?: { snapshotId: string; totalCents: number };
         error?: string;
       };
-      if (!orderResponse.ok || !orderResult.order) throw new Error(orderResult.error || "The order could not be confirmed.");
+      if (!orderResponse.ok || !orderResult.order) throw new Error(orderResult.error || "The quote could not be confirmed.");
       window.sessionStorage.setItem(`frcReportOrderAccess:${draft.orderId}`, draft.accessToken);
-      if (!orderResult.checkoutAvailable) throw new Error("Checkout is not available for this confirmed scope.");
       if (!orderResult.priceSnapshot) {
-        throw new Error("The server did not return a frozen checkout price.");
+        throw new Error("The server did not return a frozen quote price.");
       }
       if (
         orderResult.priceSnapshot.totalCents !== cataloguePricing.totalCents &&
@@ -711,20 +820,42 @@ export function PlanningSimulationWizard() {
       ) {
         setConfirmedServerPrice(orderResult.priceSnapshot);
         setValidationError(
-          `The server confirmed ${money(orderResult.priceSnapshot.totalCents)}, which differs from the browser estimate. Review the server total and select continue again to accept it.`,
+          `The server confirmed ${money(orderResult.priceSnapshot.totalCents)}, which differs from the browser estimate. Review the server total and send the quote again to accept it.`,
         );
         return;
       }
       setConfirmedServerPrice(orderResult.priceSnapshot);
-      const checkoutResponse = await fetch(`/api/planning-simulation/orders/${draft.orderId}/checkout`, {
-        method: "POST",
-        headers: { "X-FRC-Order-Token": draft.accessToken },
+      const quoteResponse = await fetch(
+        `/api/planning-simulation/orders/${draft.orderId}/send-quote`,
+        {
+          method: "POST",
+          headers: { "X-FRC-Order-Token": draft.accessToken },
+        },
+      );
+      const quoteResult = (await quoteResponse.json()) as {
+        ok?: boolean;
+        message?: string;
+        totalCents?: number;
+        error?: string;
+      };
+      if (!quoteResponse.ok || !quoteResult.ok) {
+        throw new Error(quoteResult.error || "The quote email could not be sent.");
+      }
+      setQuoteSubmitted({
+        orderId: draft.orderId,
+        message:
+          quoteResult.message ||
+          "Your quote request has been sent to FRC.",
+        totalCents: quoteResult.totalCents ?? orderResult.priceSnapshot.totalCents,
       });
-      const checkout = await checkoutResponse.json() as { session?: { checkoutUrl: string }; error?: string };
-      if (!checkoutResponse.ok || !checkout.session) throw new Error(checkout.error || "The mock checkout could not be created.");
-      window.location.assign(checkout.session.checkoutUrl);
+      try {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // ignore
+      }
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "The order could not be confirmed.");
+      setValidationError(error instanceof Error ? error.message : "The quote could not be sent.");
     } finally {
       setSaving(false);
     }
@@ -737,15 +868,18 @@ export function PlanningSimulationWizard() {
         <label className="wide"><span>Full Australian property address</span><input value={state.address} onChange={(event) => {
           update({ address: event.target.value, propertyAnalysis: null, propertyResearchOrderId: "" });
           setPropertyStatus("idle");
+          setPropertyResearchStatus("idle");
+          setPropertyResearchError("");
           setPropertyError("");
         }} placeholder="Enter street number, street, suburb, state and postcode" autoComplete="street-address" /></label>
         <label><span>Approximate land area (optional)</span><div className="planning-unit"><input inputMode="decimal" value={state.clientSuppliedLandAreaSqm} onChange={(event) => update({ clientSuppliedLandAreaSqm: event.target.value })} placeholder="550" /><b>m²</b></div><small>Recorded as client supplied, not official or surveyed.</small></label>
         <label><span>Number of properties</span><select value={state.propertyCount} onChange={(event) => update({ propertyCount: Number(event.target.value) })}><option value={1}>One property</option><option value={2}>Two adjoining properties or lots</option></select><small>Each additional property adds a fixed research amount shown at stage 6.</small></label>
       </div>
       <label className="planning-inline-check"><input type="checkbox" checked={state.ownsProperty} onChange={(event) => update({ ownsProperty: event.target.checked })} /><span>I currently own this property</span></label>
-      <button type="button" className="planning-secondary-action" onClick={checkProperty} disabled={propertyStatus === "loading"}>{propertyStatus === "loading" ? "Checking official planning sources…" : "Check this Australian property"} <span>↗</span></button>
-      {state.propertyAnalysis && <article className="property-match-card"><div><span>{state.propertyAnalysis.matchStatus === "official_source_routed" ? `Official ${state.propertyAnalysis.jurisdiction ?? "Australian"} source pathway identified` : "Official property source retrieved"}</span><strong>{state.propertyAnalysis.matchedAddress ?? state.address}</strong>{state.propertyAnalysis.notice && <small>{state.propertyAnalysis.notice}</small>}</div><dl><div><dt>Council</dt><dd>{state.propertyAnalysis.council ?? "Requires source retrieval"}</dd></div><div><dt>Lot / plan</dt><dd>{state.propertyAnalysis.lotDp ?? "Requires source retrieval"}</dd></div><div><dt>Mapped area</dt><dd>{state.propertyAnalysis.mappedParcelAreaSqm ? `${state.propertyAnalysis.mappedParcelAreaSqm} m²` : "Requires source retrieval"}</dd></div></dl></article>}
+      <button type="button" className="planning-secondary-action" onClick={checkProperty} disabled={propertyStatus === "loading"}>{propertyStatus === "loading" ? "Checking official address and cadastral lot…" : "Check this Australian property"} <span>↗</span></button>
+      {state.propertyAnalysis && <article className="property-match-card"><div><span>{state.propertyAnalysis.matchStatus === "official_source_routed" ? `Official ${state.propertyAnalysis.jurisdiction ?? "Australian"} source pathway identified` : "Official address and cadastral lot matched"}</span><strong>{state.propertyAnalysis.matchedAddress ?? state.address}</strong>{state.propertyAnalysis.notice && <small>{state.propertyAnalysis.notice}</small>}</div><dl><div><dt>Property ID</dt><dd>{state.propertyAnalysis.propertyId ?? "Not returned"}</dd></div><div><dt>Council</dt><dd>{state.propertyAnalysis.council ?? "Requires source retrieval"}</dd></div><div><dt>Lot / plan</dt><dd>{state.propertyAnalysis.lotDp ?? "Requires source retrieval"}</dd></div><div><dt>Mapped area</dt><dd>{state.propertyAnalysis.mappedParcelAreaSqm ? `${state.propertyAnalysis.mappedParcelAreaSqm} m²` : "Requires source retrieval"}</dd></div></dl><small>{propertyResearchStatus === "loading" ? "The address is confirmed. Planning and source research is continuing separately." : propertyResearchStatus === "planning_complete" ? "The planning-layer screen is ready. Deep report research runs only when you confirm the order." : propertyResearchStatus === "complete" ? "Planning and source research is complete." : "Planning screening will start after you confirm this property and continue."}</small></article>}
       {propertyError && <div className="planning-alert error"><strong>Property check incomplete</strong><p>{propertyError}</p></div>}
+      {propertyResearchError && <div className="planning-alert error"><strong>Address matched; research needs another attempt</strong><p>{propertyResearchError}</p></div>}
     </section>
   );
 
@@ -765,14 +899,11 @@ export function PlanningSimulationWizard() {
     const recommendationMap = state.customerType && state.decisionObjective
       ? new Map(recommendationsFor(state.customerType, state.decisionObjective).map((item) => [item.reportId, item.status]))
       : new Map<string, "required" | "recommended" | "optional">();
-    const selectedReports = state.selectedReportIds.map((id) => REPORT_BY_ID.get(id)).filter((entry) => entry !== undefined);
-    const needsReference = selectedReports.some((report) => report.referencesRequired);
-    const developmentSelected = selectedReports.some((report) => report.developmentSpecific);
     const motivations = ["Create space for parents or extended family", "Create independent accommodation", "Generate rental income", "Increase property value", "Prepare the property for sale", "Improve family lifestyle", "Add bedrooms", "Add working-from-home space", "Create accessible accommodation", "Build a long-term family home", "Improve outdoor living", "Add vehicle or storage space", "Compare investment options", "Replace an ageing dwelling", "Improve energy efficiency", "Prepare for future subdivision or redevelopment", "Other"];
     return (
       <section className="planning-step" aria-labelledby="items-step-title">
         <header><span>03 · Complete reports</span><h2 id="items-step-title">Choose the report that answers your question.</h2><p>Recommendations are guidance only. Every price is controlled by the server and shared property research is credited transparently when eligible reports are combined.</p></header>
-        <div className="report-catalogue-grid">{REPORT_CATALOGUE.map((report) => {
+        <div className="report-catalogue-grid">{CLIENT_REPORT_CATALOGUE.map((report) => {
           const selected = state.selectedReportIds.includes(report.id);
           const open = state.openReportId === report.id;
           const recommendation = recommendationMap.get(report.id) ?? "optional";
@@ -783,18 +914,8 @@ export function PlanningSimulationWizard() {
               const selectedReportIds = selected
                 ? state.selectedReportIds.filter((id) => id !== report.id)
                 : [...state.selectedReportIds, report.id];
-              const reviewStillAvailable =
-                state.professionalVerificationRequested ||
-                selectedReportIds.some((id) =>
-                  ["professional_review", "council_readiness"].includes(id),
-                );
-              update({
-                selectedReportIds,
-                priorityRequested: reviewStillAvailable
-                  ? state.priorityRequested
-                  : false,
-              });
-            }} /><span><small>{recommendation === "required" ? "Required for selected service" : recommendation === "recommended" ? "Recommended" : "Optional"}</small><strong>{report.name}</strong><b>{money(report.priceCents ?? 0)}</b><p>{report.purpose}</p><em>Commonly suited to {report.suitedTo.slice(0, 3).map((id) => CUSTOMER_TYPES.find((customer) => customer.id === id)?.label).join(", ")}</em></span></label>
+              update({ selectedReportIds });
+            }} /><span><small>{recommendation === "recommended" ? "Recommended" : "Optional"}</small><strong>{report.name}</strong><b>Est. {money(report.priceCents ?? 0)}</b><p>{report.purpose}</p><em>Commonly suited to {report.suitedTo.slice(0, 3).map((id) => CUSTOMER_TYPES.find((customer) => customer.id === id)?.label).join(", ")}</em></span></label>
             <button type="button" className="report-info-button" aria-expanded={open} aria-controls={`report-info-${report.id}`} aria-label={`View inclusions for ${report.name}`} onClick={() => update({ openReportId: open ? "" : report.id })}>?</button>
             <div id={`report-info-${report.id}`} className="report-info-panel" hidden={!open}>
               <h3>Who this report is for</h3><p>{report.suitedTo.map((id) => CUSTOMER_TYPES.find((customer) => customer.id === id)?.label).join(", ")}</p>
@@ -805,24 +926,25 @@ export function PlanningSimulationWizard() {
               <h4>{report.name} chapters</h4><ol className="report-template-outline specific">{reportSpecificSections.map((section) => <li key={section.code}>{section.title}</li>)}</ol>
               <h3>What it does not include</h3><ul>{report.excludes.map((item) => <li key={item}>{item}</li>)}</ul>
               <h3>What you must provide</h3><ul>{report.requiredInputs.map((item) => <li key={item}>{item}</li>)}</ul>
-              <dl><div><dt>References</dt><dd>{report.referencesRequired ? "Required" : "Not required"}</dd></div><div><dt>Drawings</dt><dd>{report.drawingsRequired ? "Required" : "Not required"}</dd></div><div><dt>Professional review</dt><dd>{report.professionalReview.replaceAll("_", " ")}</dd></div><div><dt>Expected files</dt><dd>{report.outputFiles.join(", ")}</dd></div></dl>
+              <dl><div><dt>References</dt><dd>{report.referencesRequired ? "Required" : "Not required"}</dd></div><div><dt>Drawings</dt><dd>{report.drawingsRequired ? "Required" : "Not required"}</dd></div><div><dt>FRC review</dt><dd>Included within approximately one week</dd></div><div><dt>Expected files</dt><dd>{report.outputFiles.join(", ")}</dd></div></dl>
               <h3>Important limitations</h3>{report.limitations.map((item) => <p key={item}>{item}</p>)}{report.developmentSpecific && <p>Visualisations are preliminary and illustrative. They are not architectural, engineering, surveying or construction documentation.</p>}
             </div>
           </article>;
         })}</div>
-        {developmentSelected && <div className="project-motivation-panel">
-          <h3>What is motivating this project?</h3>
+        {state.selectedReportIds.length > 0 && <div className="project-motivation-panel">
+          <h3>What do you want to do with this property?</h3>
+          <p>Tell FRC how you want to use the land, who it is for, and what matters most. This brief is emailed with your quote.</p>
           <div>{motivations.map((motivation) => <label key={motivation}><input type="checkbox" checked={state.motivationSelections.includes(motivation)} onChange={(event) => update({ motivationSelections: event.target.checked ? [...state.motivationSelections, motivation] : state.motivationSelections.filter((item) => item !== motivation) })} /><span>{motivation}</span></label>)}</div>
           <div className="project-motivation-fields">
-            <label className="wide"><span>Written project motivation</span><textarea value={state.writtenMotivation} onChange={(event) => update({ writtenMotivation: event.target.value })} /></label>
-            <label><span>Who will use the development?</span><input value={state.intendedUsers} onChange={(event) => update({ intendedUsers: event.target.value })} /></label>
+            <label className="wide"><span>Written project motivation / land-use brief</span><textarea value={state.writtenMotivation} onChange={(event) => update({ writtenMotivation: event.target.value })} placeholder="Describe what you want to build or change, who will use it, and what success looks like." /></label>
+            <label><span>Who will use the development?</span><input value={state.intendedUsers} onChange={(event) => update({ intendedUsers: event.target.value })} placeholder="Family, parents, tenants…" /></label>
             <label><span>Desired rooms</span><input value={state.desiredRooms} onChange={(event) => update({ desiredRooms: event.target.value })} placeholder="Bedrooms, study, accessible bathroom…" /></label>
             <label><span>Bedrooms</span><input type="number" min="0" max="20" value={state.bedroomCount} onChange={(event) => update({ bedroomCount: event.target.value })} /></label>
             <label><span>Bathrooms</span><input type="number" min="0" max="20" value={state.bathroomCount} onChange={(event) => update({ bathroomCount: event.target.value })} /></label>
             <label><span>Approximate floor area</span><div className="planning-unit"><input type="number" min="1" max="10000" value={state.approximateFloorAreaSqm} onChange={(event) => update({ approximateFloorAreaSqm: event.target.value })} /><b>m²</b></div></label>
             <label><span>Storey preference</span><select value={state.storeyPreference} onChange={(event) => update({ storeyPreference: event.target.value })}><option value="">Not decided</option><option value="single">Single storey</option><option value="two">Two storeys</option><option value="compare">Compare both</option></select></label>
             <label><span>Accessibility requirements</span><input value={state.accessibilityRequirements} onChange={(event) => update({ accessibilityRequirements: event.target.value })} placeholder="Step-free entry, accessible bathroom…" /></label>
-            <label><span>Preferred style</span><input value={state.preferredStyle} onChange={(event) => update({ preferredStyle: event.target.value })} /></label>
+            <label><span>Preferred style</span><input value={state.preferredStyle} onChange={(event) => update({ preferredStyle: event.target.value })} placeholder="Contemporary, weatherboard, pavilion…" /></label>
             <label><span>Preferred materials</span><input value={state.preferredMaterials} onChange={(event) => update({ preferredMaterials: event.target.value })} placeholder="Brick, timber, metal…" /></label>
             <label><span>Relationship to existing dwelling</span><input value={state.relationshipToExistingDwelling} onChange={(event) => update({ relationshipToExistingDwelling: event.target.value })} placeholder="Attached, detached, retain, replace…" /></label>
             <label><span>Privacy preferences</span><input value={state.privacyPreferences} onChange={(event) => update({ privacyPreferences: event.target.value })} /></label>
@@ -832,14 +954,21 @@ export function PlanningSimulationWizard() {
             <label><span>Timeframe</span><input value={state.timeframe} onChange={(event) => update({ timeframe: event.target.value })} /></label>
           </div>
         </div>}
-        {needsReference && <div className="reference-material-panel"><h3>Reference material or development brief</h3><p>Reference material helps FRC understand your intended outcome. It is not treated as an approved design, and third-party intellectual property is not reproduced.</p><label><span>Reference, supplier, project, prefab model or inspiration URL</span><input type="url" value={state.referenceUrl} onChange={(event) => update({ referenceUrl: event.target.value })} placeholder="https://…" /></label><label><span>Written development brief</span><textarea value={state.referenceBrief} onChange={(event) => update({ referenceBrief: event.target.value })} placeholder="Describe what you want to build, preferred features, approximate size and what matters most." /></label><label className="planning-inline-check"><input type="checkbox" checked={state.availableDocumentCategories.includes("reference_material")} onChange={(event) => update({ availableDocumentCategories: event.target.checked ? [...new Set([...state.availableDocumentCategories, "reference_material" as const])] : state.availableDocumentCategories.filter((code) => code !== "reference_material") })} /><span>I will securely upload a reference image, brochure or PDF in the next step.</span></label><small>Provide at least one URL, uploaded visual reference or written brief. Important references should also be uploaded as a screenshot or PDF because external pages can change.</small></div>}
+        {state.selectedReportIds.length > 0 && <div className="reference-material-panel">
+          <h3>Look and feel references</h3>
+          <p>Paste links to houses, projects, prefab models or inspiration pages that show what you want this to feel like. You can also upload images in the next step.</p>
+          <label><span>Inspiration / supplier / project links (one URL is enough to start)</span><input type="url" value={state.referenceUrl} onChange={(event) => update({ referenceUrl: event.target.value })} placeholder="https://…" /></label>
+          <label><span>Written development brief / what you like about the references</span><textarea value={state.referenceBrief} onChange={(event) => update({ referenceBrief: event.target.value })} placeholder="Describe preferred features, approximate size, materials, and what matters most from the links above." /></label>
+          <label className="planning-inline-check"><input type="checkbox" checked={state.availableDocumentCategories.includes("reference_material")} onChange={(event) => update({ availableDocumentCategories: event.target.checked ? [...new Set([...state.availableDocumentCategories, "reference_material" as const])] : state.availableDocumentCategories.filter((code) => code !== "reference_material") })} /><span>I will securely upload a reference image, brochure or PDF in the next step.</span></label>
+          <small>Provide at least one URL, uploaded visual reference or written brief when you can. Important references should also be uploaded as a screenshot or PDF because external pages can change.</small>
+        </div>}
       </section>
     );
   };
 
   const renderDocumentsStep = () => (
     <section className="planning-step" aria-labelledby="documents-step-title">
-      <header><span>04 · Plans and documents</span><h2 id="documents-step-title">Use what you already have.</h2><p>Already have a survey, certificate or drawing set? Upload it once. Security screening and AI relevance checking begin automatically when configured; the file remains evidence and is never treated as instructions.</p></header>
+      <header><span>04 · Plans and documents</span><h2 id="documents-step-title">Use what you already have.</h2><p>Already have a survey, certificate or drawing set? Upload it once. Files stay private evidence for your quote and are never treated as instructions.</p></header>
       {state.selectedReportIds.includes("council_readiness") && <div className="planning-alert"><strong>Council Readiness has mandatory evidence prerequisites.</strong><p>Before continuing, upload accepted copies of: {COUNCIL_READINESS_REQUIRED_DOCUMENTS.map((code) => DOCUMENT_CATEGORIES.find((item) => item.code === code)?.label ?? code).join(", ")}. A selected feasibility or plan-compliance report satisfies the report dependency; it cannot replace these issued or professionally prepared documents.</p></div>}
         <div className="planning-choice-grid two">{PLAN_OPTIONS.map((option) => <label className={`planning-choice ${state.plansStatus === option.value ? "selected" : ""}`} key={option.value}><input type="radio" name="plans-status" checked={state.plansStatus === option.value} onChange={() => update({ plansStatus: option.value })} /><span className="choice-check">✓</span><strong>{option.title}</strong><small>{option.body}</small></label>)}</div>
       <div className="document-checklist expanded">
@@ -922,35 +1051,48 @@ export function PlanningSimulationWizard() {
   const renderSourceStep = () => {
     const fields = state.propertyAnalysis?.planningFields ?? {};
     const uploaded = (code: DocumentCategoryCode) => Boolean(state.uploadedDocuments[code]?.length);
+    const jurisdictionCode = state.propertyAnalysis?.jurisdiction as AustralianJurisdictionCode | undefined;
+    const terminology = jurisdictionCode ? getPlanningTerminology(jurisdictionCode) : null;
+    const isNsw = !jurisdictionCode || jurisdictionCode === "NSW";
+    // Standard Source Scan vocabulary. An unqualified failure/unknown outcome is
+    // never shown: detailed research is either genuinely retrieved, a preliminary
+    // indication pending verification, deferred until full verification after
+    // quote confirmation, source temporarily unavailable (a real request error), or needs a
+    // professional-issued document.
+    const RETRIEVED = "Retrieved";
+    const PRELIMINARY_INDICATION = "Preliminary indication";
+    const FULL_VERIFICATION_AFTER_QUOTE = "Full verification after quote confirmation";
+    const SOURCE_TEMPORARILY_UNAVAILABLE = "Source temporarily unavailable";
+    const PROFESSIONAL_DOCUMENT_REQUIRED = "Professional document required";
     const officialFieldStatus = (field?: { status?: string }) => {
       if (!state.propertyAnalysis || !field) return "Not connected";
-      if (state.propertyAnalysis.matchStatus === "official_source_routed") return "Requires property-specific retrieval";
-      if (field.status === "mapped") return "Retrieved";
+      if (state.propertyAnalysis.matchStatus === "official_source_routed") return FULL_VERIFICATION_AFTER_QUOTE;
+      if (field.status === "mapped" || field.status === "not_mapped") return RETRIEVED;
       if (["conflict_detected", "requires_verification"].includes(field.status ?? "")) {
-        return "Requires professional review";
+        return PROFESSIONAL_DOCUMENT_REQUIRED;
       }
-      if (["not_mapped", "unavailable"].includes(field.status ?? "")) {
-        return "Checked — no mapped result";
+      if (["deferred", "unavailable"].includes(field.status ?? "")) {
+        return FULL_VERIFICATION_AFTER_QUOTE;
       }
-      if (field.status === "lookup_failed") return "Lookup failed — unknown";
+      if (field.status === "lookup_failed") return SOURCE_TEMPORARILY_UNAVAILABLE;
       return "Not connected";
     };
     const rows = [
-      ["Property address", state.propertyAnalysis ? state.propertyAnalysis.matchStatus === "official_source_routed" ? "Client address recorded" : "Retrieved" : "Not connected"],
-      ["Lot and DP", officialFieldStatus(fields.lotDp)],
+      ["Property address", !state.propertyAnalysis ? "Not connected" : state.propertyAnalysis.matchStatus === "official_source_routed" ? PRELIMINARY_INDICATION : RETRIEVED],
+      [`${terminology?.parcelReferenceTerm ?? "Lot and DP"}`, officialFieldStatus(fields.lotDp)],
       ["Indicative mapped area", officialFieldStatus(fields.parcelArea)],
-      ["Council", officialFieldStatus(fields.council)],
+      [terminology?.localAuthorityTerm ?? "Council", officialFieldStatus(fields.council)],
       ["Zoning", officialFieldStatus(fields.zone)],
-      [state.propertyAnalysis?.jurisdiction === "NSW" || !state.propertyAnalysis?.jurisdiction ? "LEP" : "Planning scheme or code", fields.zone?.status === "mapped" && state.propertyAnalysis?.controls?.lep && state.propertyAnalysis.controls.lep !== "Not mapped" ? "Retrieved" : officialFieldStatus(fields.zone)],
+      [isNsw ? "LEP" : terminology?.planningInstrumentTerm ?? "Planning scheme or code", fields.zone?.status === "mapped" && state.propertyAnalysis?.controls?.lep && state.propertyAnalysis.controls.lep !== "Not mapped" ? RETRIEVED : officialFieldStatus(fields.zone)],
       ["Building height", officialFieldStatus(fields.height)],
       ["Floor-space ratio", officialFieldStatus(fields.fsr)],
       ["Heritage screening", officialFieldStatus(fields.heritage)],
       ["Bushfire screening", officialFieldStatus(fields.bushfire)],
       ["Flood information", officialFieldStatus(fields.flooding)],
-      ["Council DCP", "Requires professional review"],
+      [isNsw ? "Council DCP" : `${terminology?.localAuthorityTerm ?? "Council"} planning controls`, PROFESSIONAL_DOCUMENT_REQUIRED],
       ["Title and deposited plan", uploaded("title_and_deposited_plan") ? "Uploaded" : "Not connected"],
       ["Registered survey", uploaded("registered_detail_survey") ? "Uploaded" : "Not connected"],
-      ["Statutory planning/property certificate", uploaded("section_10_7_certificate") ? "Uploaded" : "Requires ordering"],
+      [terminology?.planningCertificateTerm ?? "Statutory planning/property certificate", uploaded("section_10_7_certificate") ? "Uploaded" : PROFESSIONAL_DOCUMENT_REQUIRED],
     ];
     const researchUploadCategory: Partial<Record<string, DocumentCategoryCode>> = {
       SECTION_10_7_CERTIFICATE: "section_10_7_certificate",
@@ -960,7 +1102,7 @@ export function PlanningSimulationWizard() {
     };
     return <section className="planning-step" aria-labelledby="scan-step-title">
       <header><span>05 · Property information scan</span><h2 id="scan-step-title">See what is known — and what remains required.</h2><p>Unavailable information stays unverified. A failed lookup is never interpreted as “no constraint”.</p></header>
-      {!state.propertyAnalysis && <div className="planning-alert"><strong>No completed property-source check.</strong><p>Complete the official state or territory source check before ordering a report.</p><button type="button" onClick={() => setStep(0)}>Return to property</button></div>}
+      {!state.propertyAnalysis && <div className="planning-alert"><strong>No completed property-source check.</strong><p>Complete the official state or territory source check before sending a quote request.</p><button type="button" onClick={() => setStep(0)}>Return to property</button></div>}
       <div className="source-status-list">{rows.map(([label, status]) => <div key={label}><span>{label}</span><b className={status.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}>{status}</b></div>)}</div>
       {discoveredConstraints.length > 0 && <div className="planning-alert warning"><strong>Mapped constraint flags need review.</strong><p>{discoveredConstraints.map((item) => item.label).join(", ")}. Screening does not replace specialist assessment.</p></div>}
       <div className="property-research-register">
@@ -986,7 +1128,7 @@ export function PlanningSimulationWizard() {
       </div>
       <div className="client-research-panel">
         <h3>Additional public information already found</h3>
-        <p>Paste the original pages or PDF links—not just search-result text. These are retained as client-supplied leads for the AI and lead architect and remain unverified until reviewed.</p>
+        <p>Paste the original pages or PDF links—not just search-result text. These are retained as client-supplied leads for FRC and remain unverified until reviewed.</p>
         <label><span>Links (one per line)</span><textarea value={state.clientResearchLinks} onChange={(event) => update({ clientResearchLinks: event.target.value })} placeholder="https://council-or-government-source.example/…" /></label>
         <label><span>What the links appear to show</span><textarea value={state.clientResearchNotes} onChange={(event) => update({ clientResearchNotes: event.target.value })} placeholder="DA history, sale listing, consultant report, council record, or other context…" /></label>
       </div>
@@ -996,40 +1138,52 @@ export function PlanningSimulationWizard() {
 
   const renderPriceStep = () => (
     <section className="planning-step" aria-labelledby="price-step-title">
-      <header><span>06 · Price and report level</span><h2 id="price-step-title">One transparent server-controlled total.</h2><p>Selected reports, site-area complexity, review upgrades and shared-property research credits are shown separately. Your customer type never changes the price.</p></header>
+      <header><span>06 · Quote price</span><h2 id="price-step-title">Estimated catalogue cost.</h2><p>Selected reports, site-area complexity and shared-property research credits are shown separately. Your customer type never changes the estimate. This is an estimated cost for your quote request — not a final invoice, and no payment is taken here.</p></header>
       <div className="full-price-card">
-        {!cataloguePricing ? <p>Select a customer type and at least one report to calculate the confirmed scope.</p> : <><span>Current calculated price</span><dl>{cataloguePricing.lines.map((line) => <div key={line.code}><dt>{line.label}</dt><dd>{line.amountCents < 0 ? `−${money(Math.abs(line.amountCents))}` : money(line.amountCents)}</dd></div>)}<div className="total"><dt>Final total</dt><dd>{money(cataloguePricing.totalCents ?? 0)}</dd></div></dl><p className="price-tax-label">The server freezes this exact total before checkout.</p></>}
+        {!cataloguePricing ? <p>Select a customer type and at least one report to calculate the estimated cost.</p> : <><span>Estimated catalogue cost</span><dl>{cataloguePricing.lines.map((line) => <div key={line.code}><dt>{line.label}</dt><dd>{line.amountCents < 0 ? `−${money(Math.abs(line.amountCents))}` : money(line.amountCents)}</dd></div>)}<div className="total"><dt>Estimated total</dt><dd>{money(cataloguePricing.totalCents ?? 0)}</dd></div></dl><p className="price-tax-label">This estimated total is attached to your quote request for FRC. Final pricing is confirmed by FRC before any engagement proceeds. No payment is taken on this page.</p></>}
       </div>
-      <p className="unfair-pricing">Unfair pricing? Please call <a href="tel:+61410988624">0410 988 624</a> and we’ll come up with a price to suit your needs.</p>
-      <div className="planning-upgrades">
-        {reviewIncludedBySelectedReport ? <div className="planning-upgrade-included"><span><strong>FRC professional verification</strong><small>Included by the selected professional-review or council-readiness report · minimum engagement already applied</small></span></div> : <label><input type="checkbox" checked={state.professionalVerificationRequested} onChange={(event) => update({ professionalVerificationRequested: event.target.checked, priorityRequested: event.target.checked ? state.priorityRequested : false })} /><span><strong>FRC professional verification</strong><small>+A$895 · minimum total engagement A$2,195</small></span></label>}
-        <label className={!effectiveProfessionalReview ? "disabled" : ""}><input type="checkbox" disabled={!effectiveProfessionalReview} checked={state.priorityRequested && effectiveProfessionalReview} onChange={(event) => update({ priorityRequested: event.target.checked })} /><span><strong>Priority professional review</strong><small>+A$450 · available only with professional verification</small></span></label>
-      </div>
+      <p className="unfair-pricing">If you are having issues or enquiries, please call <a href="tel:+61410988624">0410 988 624</a> or email <a href="mailto:frcdesignconstruction@gmail.com">frcdesignconstruction@gmail.com</a> and we will get back to you.</p>
+      <div className="planning-alert"><strong>How delivery works</strong><p>{REPORT_QUOTE_TURNAROUND_COPY}</p></div>
       <div className="package-anchors"><article><span>Transparent report pricing</span><p>No charge simply for uploading documents.</p></article><article><span>Shared research</span><p>Eligible additional reports receive their configured shared-property research credit.</p></article><article><span>Large sites</span><p>Authoritative area tiers add real whole-site analysis; uncertain area never creates an unsupported surcharge.</p></article></div>
     </section>
   );
 
   const renderReviewStep = () => (
     <section className="planning-step" aria-labelledby="review-step-title">
-      <header><span>07 · Checkout review</span><h2 id="review-step-title">Review the complete handover before payment.</h2><p>Your property research, selected report templates, written brief, every project field, document register and uploads are frozen into one server-side order before checkout.</p></header>
+      <header><span>07 · Send quote</span><h2 id="review-step-title">Review the handover, then send your quote request.</h2><p>Your property research, selected reports, written brief, documents and estimated cost are emailed to FRC. The amount shown is an estimated quote cost only — not a final invoice. No payment is taken on this page.</p></header>
       <div className="planning-fields">
         <label><span>Client name</span><input value={state.clientName} onChange={(event) => update({ clientName: event.target.value })} autoComplete="name" /></label>
         <label><span>Email</span><input type="email" value={state.clientEmail} onChange={(event) => update({ clientEmail: event.target.value })} autoComplete="email" /></label>
         <label><span>Phone</span><input value={state.clientPhone} onChange={(event) => update({ clientPhone: event.target.value })} autoComplete="tel" /></label>
-        <label className="planning-inline-check"><input type="checkbox" checked={state.smsConsent} onChange={(event) => update({ smsConsent: event.target.checked })} /><span>Send SMS report updates (optional)</span></label>
+        <label className="planning-inline-check"><input type="checkbox" checked={state.smsConsent} onChange={(event) => update({ smsConsent: event.target.checked })} /><span>Send SMS updates (optional)</span></label>
         <label className="wide"><span>Project notes (optional)</span><textarea value={state.notes} onChange={(event) => update({ notes: event.target.value })} placeholder="Objectives, timing, existing structures or other useful context." /></label>
       </div>
       <div className="checkout-review-card">
-        <dl><div><dt>Property</dt><dd>{state.address}</dd></div><div><dt>Customer type</dt><dd>{CUSTOMER_TYPES.find((customer) => customer.id === state.customerType)?.label}</dd></div><div><dt>Reports</dt><dd>{state.selectedReportIds.map((id) => REPORT_BY_ID.get(id)?.name).join(", ")}</dd></div><div><dt>Written project handover</dt><dd>{state.writtenMotivation || state.motivationSelections.join(", ") || "Not required for the selected report"}</dd></div><div><dt>Uploaded documents</dt><dd>{Object.values(state.uploadedDocuments).flat().length} files across {state.availableDocumentCategories.length} selected categories</dd></div><div><dt>Research register</dt><dd>{state.propertyAnalysis?.researchRegister?.length ?? 0} source and prerequisite records retained</dd></div><div><dt>Final server total</dt><dd>{money(confirmedServerPrice?.totalCents ?? cataloguePricing?.totalCents ?? 0)}</dd></div><div><dt>Tax</dt><dd>Frozen with the server price configuration before checkout</dd></div></dl>
+        <dl>
+          <div><dt>Property</dt><dd>{state.address}</dd></div>
+          <div><dt>Customer type</dt><dd>{CUSTOMER_TYPES.find((customer) => customer.id === state.customerType)?.label}</dd></div>
+          <div><dt>Reports</dt><dd>{state.selectedReportIds.map((id) => REPORT_BY_ID.get(id)?.name).join(", ")}</dd></div>
+          <div><dt>Land use / motivation</dt><dd>{state.writtenMotivation || state.motivationSelections.join(", ") || "Not provided"}</dd></div>
+          <div><dt>Who will use it</dt><dd>{state.intendedUsers || "Not provided"}</dd></div>
+          <div><dt>Rooms / size</dt><dd>{[state.desiredRooms, state.bedroomCount ? `${state.bedroomCount} bed` : "", state.bathroomCount ? `${state.bathroomCount} bath` : "", state.approximateFloorAreaSqm ? `${state.approximateFloorAreaSqm} m²` : ""].filter(Boolean).join(" · ") || "Not provided"}</dd></div>
+          <div><dt>Preferred style / materials</dt><dd>{[state.preferredStyle, state.preferredMaterials].filter(Boolean).join(" · ") || "Not provided"}</dd></div>
+          <div><dt>Look & feel links</dt><dd>{state.referenceUrl || "No link"}{state.referenceBrief ? ` · ${state.referenceBrief.slice(0, 120)}${state.referenceBrief.length > 120 ? "…" : ""}` : ""}</dd></div>
+          <div><dt>Extra research links</dt><dd>{state.clientResearchLinks.trim() || "None"}{state.clientResearchNotes.trim() ? ` · ${state.clientResearchNotes.trim().slice(0, 100)}${state.clientResearchNotes.trim().length > 100 ? "…" : ""}` : ""}</dd></div>
+          <div><dt>Uploaded documents</dt><dd>{Object.values(state.uploadedDocuments).flat().length} files across {state.availableDocumentCategories.length} selected categories</dd></div>
+          <div><dt>Estimated total</dt><dd>{money(confirmedServerPrice?.totalCents ?? cataloguePricing?.totalCents ?? 0)}</dd></div>
+          <div><dt>Pricing note</dt><dd>Estimated cost for quote only — FRC confirms the final amount before work proceeds</dd></div>
+          <div><dt>Next step</dt><dd>FRC confirms engagement; reviewed pack within approximately one week</dd></div>
+        </dl>
+        <p className="price-tax-label">Need help? Call <a href="tel:+61410988624">0410 988 624</a> or email <a href="mailto:frcdesignconstruction@gmail.com">frcdesignconstruction@gmail.com</a> and we will get back to you.</p>
       </div>
       <div className="legal-consents">
-        <label><input type="checkbox" checked={state.consents.preliminary_limitations} onChange={(event) => update({ consents: { ...state.consents, preliminary_limitations: event.target.checked } })} /><span>I understand that an AI-only report is preliminary and does not constitute development approval, a registered survey, engineering certification, legal advice or council confirmation.</span></label>
+        <label><input type="checkbox" checked={state.consents.preliminary_limitations} onChange={(event) => update({ consents: { ...state.consents, preliminary_limitations: event.target.checked } })} /><span>I understand this is a preliminary property-planning report and does not constitute development approval, a registered survey, engineering certification, legal advice or council confirmation.</span></label>
         <label><input type="checkbox" checked={state.consents.document_authority} onChange={(event) => update({ consents: { ...state.consents, document_authority: event.target.checked } })} /><span>I confirm that the information and documents I supplied are accurate to the best of my knowledge and that I am authorised to upload them.</span></label>
         <label><input type="checkbox" checked={state.consents.secure_processing} onChange={(event) => update({ consents: { ...state.consents, secure_processing: event.target.checked } })} /><span>I consent to the secure processing of my submitted information and documents for the purpose of preparing this report.</span></label>
-        {(state.professionalVerificationRequested || state.selectedReportIds.some((id) => ["professional_review", "council_readiness"].includes(id))) && <label><input type="checkbox" checked={state.consents.professional_timeframe} onChange={(event) => update({ consents: { ...state.consents, professional_timeframe: event.target.checked } })} /><span>I understand that the professional-review timeframe begins after payment and after all required information has been successfully received.</span></label>}
-        <p><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Report limitations</a> · Refund policy requires business confirmation</p>
+        <label><input type="checkbox" checked={state.consents.professional_timeframe} onChange={(event) => update({ consents: { ...state.consents, professional_timeframe: event.target.checked } })} /><span>{REPORT_QUOTE_TURNAROUND_COPY}</span></label>
+        <p><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Report limitations</a></p>
       </div>
-      <button type="button" className="planning-primary-action" onClick={confirmOrder} disabled={saving || !cataloguePricing}>{saving ? "Freezing server price and creating order…" : confirmedServerPrice ? `Continue to payment · ${money(confirmedServerPrice.totalCents)}` : `Continue to payment · ${money(cataloguePricing?.totalCents ?? 0)}`} <span>→</span></button>
+      <button type="button" className="planning-primary-action" onClick={() => void confirmOrder()} disabled={saving || !cataloguePricing}>{saving ? "Sending quote to FRC…" : confirmedServerPrice ? `Send quote request · est. ${money(confirmedServerPrice.totalCents)}` : `Send quote request · est. ${money(cataloguePricing?.totalCents ?? 0)}`} <span>→</span></button>
     </section>
   );
 
@@ -1043,11 +1197,52 @@ export function PlanningSimulationWizard() {
     renderReviewStep(),
   ][state.step];
 
+  if (quoteSubmitted) {
+    return (
+      <div className="planning-simulator" ref={topRef}>
+        <section className="planning-hero">
+          <div>
+            <span>FRC · Quote request received</span>
+            <h1>Thanks — your quote is with FRC.</h1>
+          </div>
+          <div>
+            <p>{quoteSubmitted.message}</p>
+            <small>
+              Estimated quote cost {money(quoteSubmitted.totalCents)}. Reference {quoteSubmitted.orderId}.{" "}
+              {REPORT_QUOTE_TURNAROUND_COPY}
+            </small>
+          </div>
+        </section>
+        <section className="planning-step">
+          <button
+            type="button"
+            className="planning-primary-action"
+            onClick={() => {
+              setQuoteSubmitted(null);
+              if (state.draftOrderId) window.sessionStorage.removeItem(`frcReportOrderAccess:${state.draftOrderId}`);
+              window.localStorage.removeItem(STORAGE_KEY);
+              window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+              setState(INITIAL_STATE);
+              setConfirmedServerPrice(null);
+              setPropertyStatus("idle");
+              setPropertyError("");
+              setPropertyResearchStatus("idle");
+              setPropertyResearchError("");
+              setValidationError("");
+            }}
+          >
+            Start another quote <span>→</span>
+          </button>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="planning-simulator" ref={topRef}>
       <section className="planning-hero">
-        <div><span>FRC · Property planning simulation</span><h1>Planning intelligence <em>before you commit.</em></h1></div>
-        <div><p>Select the development work you want assessed, upload the documents you already hold, and receive a structured preliminary report built from traceable property information.</p><small>Use what you already have. Pay only for the analysis and professional input included in your selected scope.</small></div>
+        <div><span>FRC · Property report quotes</span><h1>Planning intelligence <em>before you commit.</em></h1></div>
+        <div><p>Select the reports you need, upload what you already hold, and send a quote request with transparent catalogue pricing.</p><small>{REPORT_QUOTE_TURNAROUND_COPY}</small></div>
       </section>
       <nav className="planning-progress" aria-label="Simulation progress">{STEP_LABELS.map((label, index) => <button type="button" key={label} className={`${state.step === index ? "active" : ""} ${state.step > index ? "done" : ""}`} onClick={() => index <= state.step && setStep(index)} disabled={index > state.step} aria-current={state.step === index ? "step" : undefined}><i>{state.step > index ? "✓" : index + 1}</i><span>{label}</span></button>)}</nav>
       <div className="planning-workspace">
@@ -1055,25 +1250,16 @@ export function PlanningSimulationWizard() {
         <aside className="planning-summary">
           <header><span>Selected scope</span><b>{state.selectedReportIds.length} {state.selectedReportIds.length === 1 ? "report" : "reports"}</b></header>
           <dl className="summary-meta"><div><dt>Property</dt><dd>{state.propertyCount === 1 ? "One property" : "Several properties"}</dd></div><div><dt>Client</dt><dd>{CUSTOMER_TYPES.find((customer) => customer.id === state.customerType)?.label ?? "Not selected"}</dd></div><div><dt>Decision</dt><dd>{DECISION_OBJECTIVES.find((objective) => objective.id === state.decisionObjective)?.label ?? "Not selected"}</dd></div></dl>
-          <div className="summary-items">{state.selectedReportIds.length ? state.selectedReportIds.map((id, index) => { const report = REPORT_BY_ID.get(id)!; return <div key={id}><span><i>{index + 1}</i><strong>{report.name}</strong></span><small>{money(report.priceCents ?? 0)}</small><button type="button" onClick={() => {
-            const selectedReportIds = state.selectedReportIds.filter((reportId) => reportId !== id);
-            const reviewStillAvailable =
-              state.professionalVerificationRequested ||
-              selectedReportIds.some((reportId) =>
-                ["professional_review", "council_readiness"].includes(reportId),
-              );
+          <div className="summary-items">{state.selectedReportIds.length ? state.selectedReportIds.map((id, index) => { const report = REPORT_BY_ID.get(id)!; return <div key={id}><span><i>{index + 1}</i><strong>{report.name}</strong></span><small>Est. {money(report.priceCents ?? 0)}</small><button type="button" onClick={() => {
             update({
-              selectedReportIds,
-              priorityRequested: reviewStillAvailable
-                ? state.priorityRequested
-                : false,
+              selectedReportIds: state.selectedReportIds.filter((reportId) => reportId !== id),
             });
           }}>Remove</button></div>; }) : <p>No reports selected.</p>}</div>
-          <div className="summary-price"><span>Current price estimate</span><strong>{cataloguePricing?.totalCents != null ? money(cataloguePricing.totalCents) : "Select reports"}</strong><small>Server recalculates and freezes the total before checkout</small></div>
-          <button type="button" className="restart-simulation" onClick={restart}>Restart simulation</button>
+          <div className="summary-price"><span>Estimated catalogue cost</span><strong>{cataloguePricing?.totalCents != null ? money(cataloguePricing.totalCents) : "Select reports"}</strong><small>Estimated quote cost only — payment is not taken here</small></div>
+          <button type="button" className="restart-simulation" onClick={restart}>Restart quote</button>
         </aside>
       </div>
-      <div className="mobile-scope-bar"><span><b>{state.selectedReportIds.length} reports</b><small>{cataloguePricing?.totalCents ? money(cataloguePricing.totalCents) : "Select reports"}</small></span>{state.step < 6 ? <button type="button" onClick={continueStep}>Continue →</button> : <button type="button" onClick={confirmOrder} disabled={saving || !cataloguePricing}>Continue to payment →</button>}</div>
+      <div className="mobile-scope-bar"><span><b>{state.selectedReportIds.length} reports</b><small>{cataloguePricing?.totalCents ? money(cataloguePricing.totalCents) : "Select reports"}</small></span>{state.step < 6 ? <button type="button" onClick={() => void continueStep()}>Continue →</button> : <button type="button" onClick={() => void confirmOrder()} disabled={saving || !cataloguePricing}>Send quote →</button>}</div>
     </div>
   );
 }

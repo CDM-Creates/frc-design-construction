@@ -113,6 +113,68 @@ const jurisdictions: Record<AustralianJurisdictionCode, AustralianJurisdiction> 
 
 export const AUSTRALIAN_JURISDICTIONS = Object.values(jurisdictions);
 
+export type PlanningTerminology = {
+  parcelReferenceTerm: string;
+  localAuthorityTerm: string;
+  planningInstrumentTerm: string;
+  planningCertificateTerm: string;
+};
+
+const TERMINOLOGY: Record<AustralianJurisdictionCode, PlanningTerminology> = {
+  NSW: {
+    parcelReferenceTerm: "Lot and DP",
+    localAuthorityTerm: "Council",
+    planningInstrumentTerm: "LEP",
+    planningCertificateTerm: "Section 10.7 planning certificate",
+  },
+  VIC: {
+    parcelReferenceTerm: "Lot and plan",
+    localAuthorityTerm: "Council",
+    planningInstrumentTerm: "Planning scheme",
+    planningCertificateTerm: "Planning property report / certificate",
+  },
+  QLD: {
+    parcelReferenceTerm: "Lot on plan",
+    localAuthorityTerm: "Council",
+    planningInstrumentTerm: "Planning scheme",
+    planningCertificateTerm: "Planning and property certificate",
+  },
+  SA: {
+    parcelReferenceTerm: "Allotment / plan reference",
+    localAuthorityTerm: "Council",
+    planningInstrumentTerm: "Planning and Design Code",
+    planningCertificateTerm: "Property interest report / certificate",
+  },
+  WA: {
+    parcelReferenceTerm: "Lot on plan",
+    localAuthorityTerm: "Local government",
+    planningInstrumentTerm: "Local planning scheme",
+    planningCertificateTerm: "Property / planning certificate",
+  },
+  TAS: {
+    parcelReferenceTerm: "Title reference",
+    localAuthorityTerm: "Council",
+    planningInstrumentTerm: "Planning scheme",
+    planningCertificateTerm: "Planning certificate",
+  },
+  ACT: {
+    parcelReferenceTerm: "Block and section",
+    localAuthorityTerm: "Territory planning authority",
+    planningInstrumentTerm: "Territory Plan",
+    planningCertificateTerm: "Lease / planning certificate",
+  },
+  NT: {
+    parcelReferenceTerm: "Lot on plan",
+    localAuthorityTerm: "Local authority",
+    planningInstrumentTerm: "Planning scheme",
+    planningCertificateTerm: "Planning certificate",
+  },
+};
+
+export function getPlanningTerminology(code: AustralianJurisdictionCode): PlanningTerminology {
+  return TERMINOLOGY[code] ?? TERMINOLOGY.NSW;
+}
+
 export function detectAustralianJurisdiction(address: string): AustralianJurisdiction | null {
   const normalised = ` ${address.toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
   for (const code of Object.keys(jurisdictions) as AustralianJurisdictionCode[]) {

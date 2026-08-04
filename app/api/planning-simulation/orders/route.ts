@@ -38,6 +38,35 @@ const documentUpgradeCodes = new Set<DocumentAnalysisUpgradeCode>([
 const customerTypeIds = new Set(CUSTOMER_TYPES.map((customer) => customer.id));
 const decisionObjectiveIds = new Set(DECISION_OBJECTIVES.map((objective) => objective.id));
 
+function hasVerifiedPropertyIdentity(property: Record<string, unknown>) {
+  const officialAddress = String(property.officialAddress ?? "").trim();
+  const lotDp = String(property.lotDp ?? "").trim();
+  const propertyId = String(property.propertyId ?? property.parcelId ?? "").trim();
+  const identity =
+    property.identity && typeof property.identity === "object"
+      ? (property.identity as Record<string, unknown>)
+      : {};
+  const identityLotDp = String(identity.lotDp ?? "").trim();
+  const identityPropertyId = String(
+    identity.propertyId ?? identity.parcelId ?? "",
+  ).trim();
+  const sourceStatus = String(property.sourceStatus ?? "");
+  const matched =
+    sourceStatus === "official_source_retrieved" ||
+    sourceStatus === "official_source_paths_identified" ||
+    Boolean(officialAddress);
+  return (
+    matched &&
+    Boolean(
+      lotDp ||
+        propertyId ||
+        identityLotDp ||
+        identityPropertyId ||
+        officialAddress,
+    )
+  );
+}
+
 const clean = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 
 const cleanList = (value: unknown, maximumItems = 50, maximumLength = 500) =>
@@ -50,16 +79,51 @@ const optionalNumber = (value: unknown, minimum = 0, maximum = 1_000_000) => {
   return Number.isFinite(number) && number >= minimum && number <= maximum ? number : null;
 };
 
+/**
+ * Rejects a floor-area figure that is physically implausible for the
+ * declared project (Phase 12): e.g. 1 sqm for a multi-room residential
+ * project. A minimum viable habitable floor area is enforced unconditionally,
+ * and a materially higher minimum applies once bedrooms/desired rooms are
+ * declared, so an obviously erroneous value can never silently pass through
+ * checkout into a paid report.
+ */
+function validateApproximateFloorArea(
+  approximateFloorAreaSqm: number | null,
+  bedroomCount: number | null,
+  desiredRoomCount: number,
+) {
+  if (approximateFloorAreaSqm === null) return;
+  const ABSOLUTE_MINIMUM_SQM = 15;
+  if (approximateFloorAreaSqm < ABSOLUTE_MINIMUM_SQM) {
+    throw new Error(
+      `Approximate floor area of ${approximateFloorAreaSqm} m² is too small for any habitable project. Enter a realistic value (at least ${ABSOLUTE_MINIMUM_SQM} m²) or leave it blank if unknown.`,
+    );
+  }
+  const declaredRooms = (bedroomCount ?? 0) + desiredRoomCount;
+  if (declaredRooms >= 1) {
+    const minimumForRoomCount = Math.max(ABSOLUTE_MINIMUM_SQM, 25 + declaredRooms * 12);
+    if (approximateFloorAreaSqm < minimumForRoomCount) {
+      throw new Error(
+        `Approximate floor area of ${approximateFloorAreaSqm} m² is not realistic for a project with ${declaredRooms} declared bedroom(s)/room(s). Enter a realistic value (at least ${minimumForRoomCount} m²) or reduce the declared rooms.`,
+      );
+    }
+  }
+}
+
 function parseProjectMotivation(value: unknown) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const desiredRooms = cleanList(raw.desiredRooms, 100, 240);
+  const bedroomCount = optionalNumber(raw.bedroomCount, 0, 20);
+  const approximateFloorAreaSqm = optionalNumber(raw.approximateFloorAreaSqm, 1, 10_000);
+  validateApproximateFloorArea(approximateFloorAreaSqm, bedroomCount, desiredRooms.length);
   return {
     selections: cleanList(raw.selections, 30, 240),
     writtenMotivation: clean(raw.writtenMotivation, 10_000),
     intendedUsers: clean(raw.intendedUsers, 2_000),
-    desiredRooms: cleanList(raw.desiredRooms, 100, 240),
-    bedroomCount: optionalNumber(raw.bedroomCount, 0, 20),
+    desiredRooms,
+    bedroomCount,
     bathroomCount: optionalNumber(raw.bathroomCount, 0, 20),
-    approximateFloorAreaSqm: optionalNumber(raw.approximateFloorAreaSqm, 1, 10_000),
+    approximateFloorAreaSqm,
     storeyPreference: clean(raw.storeyPreference, 100) || null,
     accessibilityRequirements: cleanList(raw.accessibilityRequirements, 50, 500),
     preferredStyle: clean(raw.preferredStyle, 1_000) || null,
@@ -257,23 +321,23 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    if (usingCatalogue && order.property.propertyResearchStatus !== "complete") {
+    if (usingCatalogue && !hasVerifiedPropertyIdentity(order.property)) {
       const proof = clean(body.propertyResearchProof, 2_000_000);
       if (proof) {
         const verified = await verifyServerProof<{ orderId: string; property: Record<string, unknown>; expiresAt: string }>(proof);
-        if (verified.orderId !== order.id || verified.property?.propertyResearchStatus !== "complete") {
-          throw new Error("The property-research proof does not match this order.");
+        if (verified.orderId !== order.id || !hasVerifiedPropertyIdentity(verified.property ?? {})) {
+          throw new Error("The property-identity proof does not match this order.");
         }
         order.property = verified.property;
         order.updatedAt = new Date().toISOString();
         await repository.saveOrder(order);
       }
     }
-    if (usingCatalogue && order.property.propertyResearchStatus !== "complete") {
+    if (usingCatalogue && !hasVerifiedPropertyIdentity(order.property)) {
       return Response.json(
         {
           error:
-            "Complete the official NSW property source scan, or the applicable Australian state or territory source scan, before confirming a report order.",
+            "Match the property address and identify the parcel or Lot/DP before confirming a report order. Full multi-source research runs after payment.",
         },
         { status: 409 },
       );
@@ -400,17 +464,16 @@ export async function POST(request: Request) {
     };
     if (!client.name || !/^\S+@\S+\.\S+$/.test(client.email) || !client.phone) throw new Error("Name, email and phone are required.");
 
-    const professionalReviewRequested = usingCatalogue
-      ? body.professionalReviewRequested === true || selectedReportIds.some((id) => {
-          const review = REPORT_BY_ID.get(id)?.professionalReview;
-          return review === "mandatory" || review === "included";
-        })
-      : Boolean(pricingInput?.professionalVerificationRequested);
-    const priorityRequested = usingCatalogue ? body.priorityReviewRequested === true : Boolean(pricingInput?.priorityRequested);
+    const professionalReviewRequested = false;
+    const priorityRequested = false;
     const consentRaw = body.consents && typeof body.consents === "object" && !Array.isArray(body.consents) ? body.consents as Record<string, unknown> : {};
-    const requiredConsentCodes: ConsentRecord["code"][] = ["preliminary_limitations", "document_authority", "secure_processing"];
-    if (professionalReviewRequested) requiredConsentCodes.push("professional_timeframe");
-    if (requiredConsentCodes.some((code) => consentRaw[code] !== true)) throw new Error("Accept every required acknowledgement before checkout.");
+    const requiredConsentCodes: ConsentRecord["code"][] = [
+      "preliminary_limitations",
+      "document_authority",
+      "secure_processing",
+      "professional_timeframe",
+    ];
+    if (requiredConsentCodes.some((code) => consentRaw[code] !== true)) throw new Error("Accept every required acknowledgement before sending your quote request.");
     const acceptedAt = new Date().toISOString();
     const consents = requiredConsentCodes.map((code) => ({ code, textVersion: "FRC_CONSENT_2026_01" as const, acceptedAt }));
     const business = getBusinessConfiguration();
@@ -423,7 +486,7 @@ export async function POST(request: Request) {
         ? (body.property as Record<string, unknown>)
         : {};
     const trustedProperty =
-      order.property.propertyResearchStatus === "complete"
+      hasVerifiedPropertyIdentity(order.property)
         ? order.property
         : {};
     const property: Record<string, unknown> = {
@@ -456,13 +519,22 @@ export async function POST(request: Request) {
             parcelCount: Number.isInteger(Number(property.parcelCount)) ? Number(property.parcelCount) : 1,
             ruralOrNonStandard: property.ruralOrNonStandard === true,
           },
-          professionalReviewRequested:
-            body.professionalReviewRequested === true ||
-            selectedReportIds.includes("professional_review"),
-          priorityReviewRequested: priorityRequested,
+          professionalReviewRequested: false,
+          priorityReviewRequested: false,
           documentAnalysisUpgrades: chargeableDocumentAnalysisUpgrades,
         }, business.taxTreatment)
       : await freezePriceSnapshot(pricingInput!, business.taxTreatment);
+
+    // Catalogue quotes always freeze price and wait for FRC confirmation.
+    if (usingCatalogue) {
+      priceSnapshot.quoteRequired = true;
+      priceSnapshot.quoteReasons = [
+        ...new Set([
+          ...(priceSnapshot.quoteReasons ?? []),
+          "Simulator quote request — FRC confirms engagement before work proceeds",
+        ]),
+      ];
+    }
 
     const processedReferences = await Promise.all(references.map(async (reference) => {
       if (!reference.url) return { ...reference, accessStatus: reference.storageReference || reference.writtenBrief ? "not_required" : "inaccessible", accessedAt: null, extractedMetadata: {} };
