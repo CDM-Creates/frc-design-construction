@@ -29,7 +29,7 @@ From address: `QUOTE_FROM_EMAIL`. Delivery uses Resend (`RESEND_API_KEY`). Witho
 3. `POST /api/planning-simulation/orders/[orderId]/send-quote` emails FRC the client, property, selected reports, and quoted total.
 4. FRC replies to the client to confirm engagement / invoice. Report work is handled offline by FRC — not auto-started by payment webhooks.
 
-Homepage architectural quotes still use `POST /api/quote-request` and the same `QUOTE_TO_EMAIL` helper.
+Homepage architectural quotes use `POST /api/quote-request` and the same `QUOTE_TO_EMAIL` helper. That route emails Resend immediately with the client brief and deterministic capacity summary — it does not wait on AI simulation.
 
 ## Key files
 

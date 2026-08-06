@@ -1,8 +1,10 @@
 import { calculateSiteCapacity } from "../../lib/ai/site-capacity";
-import { orchestrateSimulation } from "../../lib/ai/orchestrator";
 import { createEmptyProject, mergeProjectData } from "../../lib/project-data";
-import { completeSimulationRecords, createSimulationRecords } from "../../lib/simulation-repository";
-import { setSimulationMemory } from "../../lib/simulation-memory";
+import {
+  getQuoteFromEmail,
+  getQuoteRecipientEmail,
+  getResendApiKey,
+} from "../../lib/report-platform/quote-delivery";
 
 type QuoteProject = {
   sourceStep?: string;
@@ -100,8 +102,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Enter a valid email address." }, { status: 400 });
     }
 
-    const apiKey = process.env.RESEND_API_KEY;
-    const { getQuoteFromEmail, getQuoteRecipientEmail } = await import("../../lib/report-platform/quote-delivery");
+    const apiKey = getResendApiKey();
     const recipient = getQuoteRecipientEmail();
     const from = getQuoteFromEmail();
 
@@ -182,17 +183,12 @@ export async function POST(request: Request) {
       consent: { concept_disclaimer_accepted: true, accepted_at: new Date().toISOString() },
       metadata: { ...empty.metadata, source: "frc-quote-workflow", updated_at: new Date().toISOString() },
     });
+
+    // Deterministic capacity only — never block Resend on AI orchestration.
     const capacity = calculateSiteCapacity(capacityProject);
     const subjectLocation = text(project.suburb, 80) || "NSW project";
     const professionalSubject = `Quote review · ${projectType(project.projectGoal)} · ${subjectLocation} · ${fullName}`;
-    const jobId = crypto.randomUUID();
-    capacityProject.id = crypto.randomUUID();
-    const records = await createSimulationRecords(jobId, capacityProject);
-    capacityProject.id = records.projectId;
-    const handover = await orchestrateSimulation(jobId, capacityProject);
-    setSimulationMemory(handover);
-    await completeSimulationRecords(handover);
-    const internalUrl = new URL(`/simulation-results/${jobId}`, request.url).toString();
+
     const emailHtml = `
       <div style="margin:0;padding:28px;background:#efede6;color:#17221d;font-family:Arial,sans-serif">
         <div style="max-width:780px;margin:0 auto;background:white;border:1px solid #d8d5ca">
@@ -252,7 +248,6 @@ export async function POST(request: Request) {
             ${list([...capacity.conflicts, ...capacity.warnings])}
             <h3 style="margin:22px 0 8px;font:18px Georgia,serif;font-weight:400">Information to obtain before scope confirmation</h3>
             ${list(capacity.verification_required.slice(0, 10))}
-            <p style="margin:24px 0"><a style="display:inline-block;background:#111914;color:#fff;padding:14px 18px;text-decoration:none;font-weight:bold" href="${html(internalUrl)}">Open full internal feasibility handover</a></p>
           </div>
 
           <div style="padding:18px 30px 30px">
@@ -280,7 +275,7 @@ export async function POST(request: Request) {
 
     if (!emailResponse.ok) {
       const details = await emailResponse.text();
-      console.error("Quote email delivery failed", emailResponse.status, details);
+      console.error("Quote email delivery failed", emailResponse.status, { from, recipient, details });
       let resendMessage = details.slice(0, 500);
       try {
         const parsed = JSON.parse(details) as { message?: string };
@@ -293,7 +288,8 @@ export async function POST(request: Request) {
       }, { status: 502 });
     }
 
-    return Response.json({ ok: true, jobId, internalPath: `/simulation-results/${jobId}` });
+    console.info("[homepage-quote] emailed", { recipient, from, subject: professionalSubject });
+    return Response.json({ ok: true });
   } catch (error) {
     console.error("Quote request error", error);
     return Response.json({ error: "The quote request could not be processed." }, { status: 500 });
